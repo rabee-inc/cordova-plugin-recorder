@@ -1,0 +1,46 @@
+<?xml version="0.0.1" encoding="UTF-8"?>
+<plugin xmlns="http://apache.org/cordova/ns/plugins/1.0" id="cordova-plugin-rec" version="0.0.1">
+  <name>Rec</name>
+  <description>record audio plugin</description>
+  <js-module src="www/rec.js" name='Rec' >
+    <clobbers target="rec" />
+  </js-module>
+  <!-- iOS -->
+  <platform name="ios">
+    <config-file target="config.xml" parent="/*">
+      <feature name="Rec">
+        <param name="onload" value="true" />
+        <param name="ios-package" value="CDVRec" />
+      </feature>
+      <preference name="deployment-target" value="10.0" />
+    </config-file>
+
+    <dependency id="cordova-plugin-add-swift-support" version="2.0.2"/>
+    <preference name="UseSwiftLanguageVersion" default="4" />
+    
+    <!-- Swift source -->
+    <source-file src="src/ios/CDVRec.swift" />
+    <source-file src="src/ios/CDVRecConverter.swift" />
+    <source-file src="src/ios/CDVRecRecorder.swift" />
+    <source-file src="src/ios/CDVRec-Bridging-Header.h" />
+  </platform>
+  <!-- Android -->
+  <platform name="android">
+    <config-file target="res/xml/config.xml" parent="/*">
+      <feature name="Rec">
+        <param name="android-package" value="jp.snuffy.rec.CDVRec"/>
+        <param name="onload" value="true" />
+      </feature>
+      <preference name="android-minSdkVersion" value="19" />
+    </config-file>
+    <config-file target="AndroidManifest.xml" parent="/manifest">
+      <uses-permission android:name="android.permission.RECORD_AUDIO" />
+    </config-file>
+    
+    <source-file src="src/android/CDVRec.java" target-dir="src/jp/snuffy/rec" />
+    <source-file src="src/android/WavFile.java" target-dir="src/jp/snuffy/rec" />
+    <source-file src="src/android/WavFileException.java" target-dir="src/jp/snuffy/rec" />
+
+    <framework src="build.gradle" custom="true" type="gradleReference"/>
+  </platform>
+</plugin>

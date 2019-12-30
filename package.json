@@ -1,0 +1,32 @@
+{
+  "name": "cordova-plugin-rec",
+  "version": "0.0.1",
+  "description": "cordova-plugin-rec",
+  "cordova" : {
+    "id": "cordova-plugin-rec",
+    "platforms": [
+      "ios"
+    ]
+  },
+  "main": "index.js",
+  "scripts": {
+    "test": "echo \"Error: no test specified\" && exit 1"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/snuffy/cordova-plugin-rec.git"
+  },
+  "author": "snuffy",
+  "license": "MIT",
+  "bugs": {
+    "url": "https://github.com/snuffy/cordova-plugin-rec/issues"
+  },
+  "dependencies": {},
+  "homepage": "https://github.com/snuffy/cordova-plugin-rec#readme",
+  "keywords": [
+    "ecosystem:cordova",
+    "cordova-ios",
+    "cordova:plugin",
+    "plugin"
+  ]
+}
