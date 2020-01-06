@@ -1,3 +1,7 @@
+import AVFoundation
+import Foundation
+import Accelerate
+
 // 参照
 // https://github.com/yumemi-ajike/AudioService/blob/master/AudioService/AudioService.swift
 
@@ -24,15 +28,15 @@ class AudioService {
         // format
         let formatFlags = AudioFormatFlags(kLinearPCMFormatFlagIsSignedInteger | kLinearPCMFormatFlagIsPacked)
         
-        return AudioStreamBasicDescription( mSampleRate: 48000,
-                                            mFormatID: kAudioFormatLinearPCM, // format
-                                            mFormatFlags: formatFlags,
-                                            mBytesPerPacket: 2, // per packet
-                                            mFramesPerPacket: 1,
-                                            mBytesPerFrame: 2,
-                                            mChannelsPerFrame: 1,
-                                            mBitsPerChannel: 16,
-                                            mReserved: 0)
+        return AudioStreamBasicDescription(mSampleRate: 48000,
+                                           mFormatID: kAudioFormatLinearPCM, // format
+                                           mFormatFlags: formatFlags,
+                                           mBytesPerPacket: 2, // per packet
+                                           mFramesPerPacket: 1,
+                                           mBytesPerFrame: 2,
+                                           mChannelsPerFrame: 1,
+                                           mBitsPerChannel: 16,
+                                           mReserved: 0)
     }
     
     var data: NSData?
@@ -40,7 +44,7 @@ class AudioService {
     // 初期化
     init(_ obj: Any?) {
         startingPacketCount = 0
-        maxPacketCount = (48000 * seconds)
+        maxPacketCount = 48000 * seconds
         buffer = UnsafeMutableRawPointer(malloc(Int(maxPacketCount * bytesPerPacket)))
     }
     
@@ -52,13 +56,13 @@ class AudioService {
     private func prepareRecord() {
         var audioFormat = self.audioFormat
         // Audio Queue を作成
-        AudioQueueNewInput( &audioFormat,
-                            AQAudioQueueInputCallback, // コールバック
-                            unsafeBitCast(self, to: UnsafeMutablePointer.self),
-                            CFRunLoopGetCurrent(),
-                            CFRunLoopMode.commonModes.rawValue,
-                            0,
-                            &audioQueueObject)
+        AudioQueueNewInput(&audioFormat,
+                           AQAudioQueueInputCallback, // コールバック
+                           unsafeBitCast(self, to: UnsafeMutablePointer.self),
+                           CFRunLoopGetCurrent(),
+                           CFRunLoopMode.commonModes.rawValue,
+                           0,
+                           &audioQueueObject)
         
         startingPacketCount = 0
         
@@ -67,52 +71,54 @@ class AudioService {
         let bufferBiteSize: UInt32 = numPacketsToWrite * audioFormat.mBytesPerPacket
         
         for index in 0..<buffers.count {
+            guard let audioQueueObject = audioQueueObject else { return }
             // buffer の確保
-            AudioQueueAllocateBuffer(audioQueueObject!, bufferBiteSize, &buffers[index])
+            AudioQueueAllocateBuffer(audioQueueObject, bufferBiteSize, &buffers[index])
             // キューの最後に buffer の追加
-            AudioQueueEnqueueBuffer(audioQueueObject!, buffers[index]!, 0, nil)
+            AudioQueueEnqueueBuffer(audioQueueObject, buffers[index]!, 0, nil)
         }
         
     }
     
     // 録音
     func startRecord() {
-        guard audioQueueObject == nil else { return }
+        guard let audioQueueObject = audioQueueObject else { return }
         prepareRecord()
-        let err: OSStatus = AudioQueueStart(audioQueueObject!, nil)
+        let err: OSStatus = AudioQueueStart(audioQueueObject, nil)
         print(err)
     }
     
     // 録音再開
     func resumeRecord() {
-        guard audioQueueObject == nil else { return }
-        let err: OSStatus = AudioQueueStart(audioQueueObject!, nil)
+        guard let audioQueueObject = audioQueueObject else { return }
+        let err: OSStatus = AudioQueueStart(audioQueueObject, nil)
         print(err)
     }
     
     // レコーディングを pause する
     func pauseRecord() {
+        guard let audioQueueObject = audioQueueObject else { return }
         data = NSData(bytesNoCopy: buffer, length: Int(maxPacketCount * bytesPerPacket))
-        AudioQueueStop(audioQueueObject!, true)
+        AudioQueueStop(audioQueueObject, true)
     }
     
     // レコーディングをストップする
     func stopRecord() {
+        guard let audioQueueObject = audioQueueObject else { return }
         data = NSData(bytesNoCopy: buffer, length: Int(maxPacketCount * bytesPerPacket))
-        AudioQueueStop(audioQueueObject!, true)
-        AudioQueueDispose(audioQueueObject!, true)
-        audioQueueObject = nil
+        AudioQueueStop(audioQueueObject, true)
+        AudioQueueDispose(audioQueueObject, true)
+        self.audioQueueObject = nil
     }
     
     
     // パケットを書き込む
     func writePackets(inBuffer: AudioQueueBufferRef) {
-        
         var packetCount: UInt32 = (inBuffer.pointee.mAudioDataByteSize / bytesPerPacket)
         
         // 残りのパケット数が、書き込むパケット数より少なかったら
-        if ((maxPacketCount - startingPacketCount) < packetCount) {
-            packetCount = (maxPacketCount - startingPacketCount) // 残りパケット数をパケット数にする
+        if (maxPacketCount - startingPacketCount) < packetCount {
+            packetCount = maxPacketCount - startingPacketCount // 残りパケット数をパケット数にする
         }
         
         // パケットカウント
@@ -121,14 +127,10 @@ class AudioService {
             memcpy(buffer.advanced(by: Int(bytesPerPacket * startingPacketCount)), // dst
                    inBuffer.pointee.mAudioData, // data
                    Int(bytesPerPacket * packetCount)) // size
-            
             startingPacketCount += packetCount
         }
     }
-    
-
 }
-
 
 // 録音が走るたび
 func AQAudioQueueInputCallback(inUserData: UnsafeMutableRawPointer?,
@@ -137,13 +139,11 @@ func AQAudioQueueInputCallback(inUserData: UnsafeMutableRawPointer?,
                                inStartTime: UnsafePointer<AudioTimeStamp>,
                                inNumberPacketDescriptions: UInt32,
                                inPacketDescs: UnsafePointer<AudioStreamPacketDescription>?) {
-    
-    
     let audioService = unsafeBitCast(inUserData!, to:AudioService.self)
     audioService.writePackets(inBuffer: inBuffer)
-    AudioQueueEnqueueBuffer(inAQ, inBuffer, 0, nil);
+    AudioQueueEnqueueBuffer(inAQ, inBuffer, 0, nil)
     
-    if (audioService.maxPacketCount <= audioService.startingPacketCount) {
+    if audioService.maxPacketCount <= audioService.startingPacketCount {
         audioService.stopRecord()
     }
 }
