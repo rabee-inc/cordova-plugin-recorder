@@ -2,7 +2,7 @@ import AVFoundation
 import Foundation
 import Accelerate
 
-@objc(CDVRec) class CDVRec : CDVPlugin, AVAudioPlayerDelegate {
+@objc(CDVRecorder) class CDVRecorder : CDVPlugin, AVAudioPlayerDelegate {
     let bufferSize = 4096
 
     var engine: AVAudioEngine?
@@ -27,6 +27,19 @@ import Accelerate
         var folderID: String
     }
     
+    // エラーコード定義
+    enum ErrorCode: String {
+        case permissionError = "permission_error"
+        case argumentError = "argument_error"
+        case folderManipulationError = "folder_manipulation_error"
+        case jsonSerializeError = "json_serialize_error"
+        // for plugin send
+        func toDictionary(message: String) -> [String:Any] {
+            return ["code": self.rawValue, "message": message]
+        }
+    }
+
+
     /* folder structure
      
      // divided file
@@ -56,6 +69,7 @@ import Accelerate
     var currentJoinedAudioName: String? // 連結済みファイルの最新のものの名前
     var queue: [Audio] = []
     
+    // called starting app
     override func pluginInitialize() {
         print("[cordova plugin REC. intializing]")
         engine = AVAudioEngine()
@@ -67,20 +81,49 @@ import Accelerate
             AVEncoderBitRatePerChannelKey: 16,
             AVEncoderAudioQualityKey: AVAudioQuality.high.rawValue
         ]
-        
+        queue = []
+        currentAudios = []
+    }
+    
+    
+    // initalize
+    @objc func initialize(_ command: CDVInvokedUrlCommand) {
+        // 録音する許可がされているか？
+        audioSession = AVAudioSession.sharedInstance()
+        audioSession?.requestRecordPermission { granted in
+            if !granted {
+                let message = ErrorCode.permissionError.toDictionary(message: "deny permission")
+                let result = CDVPluginResult(
+                    status: CDVCommandStatus_ERROR,
+                    messageAs:message
+                    )
+                self.commandDelegate.send(result, callbackId: command.callbackId)
+            }
+        }
         // 録音したものを配置するルートフォルダを作成
         if !FileManager.default.fileExists(atPath: URL(fileURLWithPath: recordingDir).path) {
             do {
                 try FileManager.default.createDirectory(at: URL(fileURLWithPath: recordingDir), withIntermediateDirectories: true)
             } catch {
-                // TODO: エラーハンドリング
+                
+                let result = CDVPluginResult(
+                    status: CDVCommandStatus_ERROR,
+                    messageAs: ErrorCode.folderManipulationError.toDictionary(message: "can't create recording folder")
+                    )
+                self.commandDelegate.send(result, callbackId: command.callbackId)
             }
         }
     }
+
     
+    // initialize setting
     @objc func initSettings(_ command: CDVInvokedUrlCommand) {
         guard let settings = command.arguments.first as? [String: Any] else {
-            self.cordovaResultError(command, message: "init settings error")
+            let result = CDVPluginResult(
+                status: CDVCommandStatus_ERROR,
+                messageAs: ErrorCode.argumentError.toDictionary(message: "init settings error")
+                )
+            self.commandDelegate.send(result, callbackId: command.callbackId)
             return
         }
         
@@ -126,11 +169,17 @@ import Accelerate
         }
         
         // pause するだけ
-        _ = pauseRecord()
-        isRecording = false
-        
-        let result = CDVPluginResult(status: CDVCommandStatus_OK, messageAs: true)
-        self.commandDelegate.send(result, callbackId: command.callbackId)
+        do {
+            _ = try pauseRecord()
+            isRecording = false
+            
+            let result = CDVPluginResult(status: CDVCommandStatus_OK, messageAs: true)
+            self.commandDelegate.send(result, callbackId: command.callbackId)
+        }
+        catch let err {
+            self.cordovaResultError(command, message: "can't stop recording\(err)")
+        }
+
     }
     
     // pause recording
@@ -142,12 +191,19 @@ import Accelerate
         }
         
         // レコーディング中断
-        _ = pauseRecord()
-        isRecording = false
-    
-        // cordova result
-        let result = CDVPluginResult(status: CDVCommandStatus_OK, messageAs: true)
-        self.commandDelegate.send(result, callbackId: command.callbackId)
+        
+        do {
+            _ = try pauseRecord()
+            isRecording = false
+        
+            // cordova result
+            let result = CDVPluginResult(status: CDVCommandStatus_OK, messageAs: true)
+            self.commandDelegate.send(result, callbackId: command.callbackId)
+        }
+        catch let err {
+            self.cordovaResultError(command, message: "can't pause recording\(err)")
+        }
+
     }
     
     // resume recording
@@ -181,14 +237,26 @@ import Accelerate
         do {
             // JSON データの形成
             let encoder = JSONEncoder()
+            encoder.keyEncodingStrategy = .convertToSnakeCase // スネークケースに変換
+
             let data = try encoder.encode(recordAudio)
             guard let msg = try JSONSerialization.jsonObject(with: data, options: []) as? [String: Any] else {
-                self.cordovaResultError(command, message: "json serialization error")
+                let message = ErrorCode.jsonSerializeError.toDictionary(message: "json serialization error")
+                let result = CDVPluginResult(
+                    status: CDVCommandStatus_ERROR,
+                    messageAs:message
+                    )
+                self.commandDelegate.send(result, callbackId: command.callbackId)
                 return
             }
             sendMessage = msg
         } catch let err {
-            self.cordovaResultError(command, message: "encode error: \(err)")
+            let message = ErrorCode.jsonSerializeError.toDictionary(message: "encode error: \(err)")
+            let result = CDVPluginResult(
+             status: CDVCommandStatus_ERROR,
+             messageAs:message
+             )
+            self.commandDelegate.send(result, callbackId: command.callbackId)
             return
         }
         
@@ -213,16 +281,26 @@ import Accelerate
             }
             let fileNames = try FileManager.default.contentsOfDirectory(atPath: recordingDir)
             let result = CDVPluginResult(status: CDVCommandStatus_OK, messageAs:fileNames)
-             self.commandDelegate.send(result, callbackId: command.callbackId)
+            self.commandDelegate.send(result, callbackId: command.callbackId)
         }
         catch let err {
-            self.cordovaResultError(command, message: "can't get index: \(err)")
+            let message = ErrorCode.folderManipulationError.toDictionary(message: "can't get recording folders: \(err)")
+            let result = CDVPluginResult(
+             status: CDVCommandStatus_ERROR,
+             messageAs:message
+             )
+            self.commandDelegate.send(result, callbackId: command.callbackId)
         }
     }
     
     @objc func removeFolder(_ command: CDVInvokedUrlCommand) {
         guard let folderID = command.argument(at: 0, withDefault: String.self) as? String else {
-            self.cordovaResultError(command, message: "get folderID error")
+            let message = ErrorCode.argumentError.toDictionary(message: "get folderID error")
+            let result = CDVPluginResult(
+             status: CDVCommandStatus_ERROR,
+             messageAs:message
+             )
+            self.commandDelegate.send(result, callbackId: command.callbackId)
             return
         }
         if let err = removeFolder(id: folderID) {
@@ -249,7 +327,11 @@ import Accelerate
     
     @objc func setFolder(_ command: CDVInvokedUrlCommand) {
         guard let folderID = command.argument(at: 0, withDefault: String.self) as? String else {
-            self.cordovaResultError(command, message: "get folderID error")
+            let result = CDVPluginResult(
+                status: CDVCommandStatus_ERROR,
+                messageAs: ErrorCode.argumentError.toDictionary(message: "[recorder: getAudio] First argument required. Please specify folder id")
+                )
+            self.commandDelegate.send(result, callbackId: command.callbackId)
             return
         }
         self.folderID = folderID
@@ -259,12 +341,20 @@ import Accelerate
             let d = try FileManager.default.contentsOfDirectory(atPath: (recordingDir + "/\(folderID)/divided/"))
             self.audioIndex = Int32(d.count - 1)
             guard let j = try FileManager.default.contentsOfDirectory(atPath: (recordingDir + "/\(folderID)/joined/")).first else {
-                self.cordovaResultError(command, message: "contentsOfDirectory error")
+                let result = CDVPluginResult(
+                    status: CDVCommandStatus_ERROR,
+                    messageAs: ErrorCode.folderManipulationError.toDictionary(message: "contentsOfDirectory error")
+                    )
+                self.commandDelegate.send(result, callbackId: command.callbackId)
                 return
             }
             audioPath = URL(fileURLWithPath: (recordingDir + "/\(folderID)/joined/\(j)"))
         } catch let err {
-            self.cordovaResultError(command, message: "file manager error: \(err)")
+            let result = CDVPluginResult(
+                status: CDVCommandStatus_ERROR,
+                messageAs: ErrorCode.folderManipulationError.toDictionary(message: "file manager error: \(err)")
+                )
+            self.commandDelegate.send(result, callbackId: command.callbackId)
             return
         }
         
@@ -274,16 +364,25 @@ import Accelerate
     
     @objc func getAudio(_ command: CDVInvokedUrlCommand) {
         guard let folderID = command.argument(at: 0) as? String else {
-            self.cordovaResultError(command, message: "get folderID error")
+            let result = CDVPluginResult(
+                status: CDVCommandStatus_ERROR,
+                messageAs: ErrorCode.argumentError.toDictionary(message: "[recorder: getAudio] First argument required. Please specify folder id")
+                )
+            self.commandDelegate.send(result, callbackId: command.callbackId)
             return
         }
         self.folderID = folderID
         
         do {
             guard let j = try FileManager.default.contentsOfDirectory(atPath: (recordingDir + "/\(folderID)/joined/")).first else {
-                self.cordovaResultError(command, message: "file manager error")
+                let result = CDVPluginResult(
+                    status: CDVCommandStatus_ERROR,
+                    messageAs: ErrorCode.folderManipulationError.toDictionary(message: "file manager error")
+                    )
+                self.commandDelegate.send(result, callbackId: command.callbackId)
                 return
             }
+            
             let audioPath = URL(fileURLWithPath: (recordingDir + "/\(folderID)/joined/\(j)"))
             let asset = AVURLAsset(url:audioPath)
             
@@ -293,6 +392,8 @@ import Accelerate
             
             // JSON データの形成
             let encoder = JSONEncoder()
+            encoder.keyEncodingStrategy = .convertToSnakeCase // スネークケースに変換
+
             let data = try encoder.encode(audio)
             
             // Dictionary 型にキャスト
@@ -309,7 +410,11 @@ import Accelerate
     @objc func getWaveForm(_ command: CDVInvokedUrlCommand) {
         guard let id = command.argument(at: 0) as? String,
             let joinedAudioPath = URL(string: id) else {
-            // TODO エラーハンドリング
+            let result = CDVPluginResult(
+                status: CDVCommandStatus_ERROR,
+                messageAs: ErrorCode.argumentError.toDictionary(message: "[recorder: getAudio] First argument required. Please specify folder id")
+                )
+            self.commandDelegate.send(result, callbackId: command.callbackId)
             return
         }
         do {
@@ -334,7 +439,11 @@ import Accelerate
     // 分割する
     @objc func split(_ command: CDVInvokedUrlCommand) {
         guard let s = command.argument(at: 0) as? NSNumber else {
-            // TODO: エラーハンドリング
+            let result = CDVPluginResult(
+                status: CDVCommandStatus_ERROR,
+                messageAs: ErrorCode.argumentError.toDictionary(message: "[recorder: getAudio] First argument required. Please specify number")
+                )
+            self.commandDelegate.send(result, callbackId: command.callbackId)
             return
         }
         let seconds = s.floatValue
@@ -350,20 +459,21 @@ import Accelerate
         let composition = AVMutableComposition()
         guard let audioAssetTrack = audioAsset.tracks(withMediaType: AVMediaType.audio).first,
             let audioCompositionTrack = composition.addMutableTrack(withMediaType: AVMediaType.audio, preferredTrackID: kCMPersistentTrackID_Invalid) else {
-            // TODO: エラーハンドリング
+            self.cordovaResultError(command, message: "")
             return
         }
 
         let timescale = Int32(NSEC_PER_SEC)
-        let start = CMTimeMakeWithSeconds(0, preferredTimescale: timescale)
-        let end = CMTimeMakeWithSeconds(Float64(seconds), preferredTimescale: timescale)
-        let range = CMTimeRangeMake(start: start, duration: end)
+        let start = CMTimeMakeWithSeconds(0, timescale)
+        let end = CMTimeMakeWithSeconds(Float64(seconds), timescale)
+        let range = CMTimeRangeMake(start, end)
         // カット
         do {
-            try audioCompositionTrack.insertTimeRange(range, of: audioAssetTrack, at: CMTime.zero)
+            try audioCompositionTrack.insertTimeRange(range, of: audioAssetTrack, at: kCMTimeZero)
         }
         catch let error {
             print(error) // TODO: ここはエラー返さなくていいの？
+            self.cordovaResultError(command, message: "split error: \(error)")
         }
         
         //  export
@@ -402,6 +512,7 @@ import Accelerate
                     semaphore.signal()
                 case .failed, .cancelled:
                     print("[join error: failed or cancelled]", exportSession.error.debugDescription)
+                    self.cordovaResultError(command, message: "split error: failed or cancelled")
                     semaphore.signal()
                 case .waiting:
                     print(exportSession.progress);
@@ -419,6 +530,8 @@ import Accelerate
         
         // JSON データの形成
         let encoder = JSONEncoder()
+        encoder.keyEncodingStrategy = .convertToSnakeCase // スネークケースに変換
+
         let data = try! encoder.encode(record_audio)
         
         // Dictionary 型にキャスト
@@ -445,8 +558,12 @@ import Accelerate
                 do {
                     try FileManager.default.removeItem(at: outputPath)
                 } catch let err {
-                    self.cordovaResultError(command, message: "file manager remove item error: \(err)")
-                    return // TODO ここは握りつぶした方が良い？
+                    let result = CDVPluginResult(
+                        status: CDVCommandStatus_ERROR,
+                        messageAs: ErrorCode.folderManipulationError.toDictionary(message: "file manager remove item error: \(err)")
+                        )
+                    self.commandDelegate.send(result, callbackId: command.callbackId)
+                    return
                 }
             }
             
@@ -493,23 +610,34 @@ import Accelerate
             
             if let audio = audio {
                 // 送るオーディオファイルの作成
-                let record_audio = RecordedAudio(audios: [], fullAudio: audio, folderID: self.folderID)
+                let recordAudio = RecordedAudio(audios: [], fullAudio: audio, folderID: self.folderID)
                 
                 do {
                     // JSON データの形成
                     let encoder = JSONEncoder()
-                    let data = try encoder.encode(record_audio)
+                    encoder.keyEncodingStrategy = .convertToSnakeCase // スネークケースに変換
+
+                    let data = try encoder.encode(recordAudio)
                     
                     // Dictionary 型にキャスト
                     guard let sendMessage = try JSONSerialization.jsonObject(with: data, options: []) as? [String: Any] else {
                         // エラーハンドリング
+                        let result = CDVPluginResult(
+                            status: CDVCommandStatus_ERROR,
+                            messageAs: ErrorCode.jsonSerializeError.toDictionary(message: "[recorder: exportWithCompression] json serialize error")
+                            )
+                        self.commandDelegate.send(result, callbackId: command.callbackId)
                         return
                     }
                     
                     let result = CDVPluginResult(status: CDVCommandStatus_OK, messageAs: sendMessage)
                     self.commandDelegate.send(result, callbackId: command.callbackId)
                 } catch let err {
-                    self.cordovaResultError(command, message: "json encode error: \(err)")
+                    let result = CDVPluginResult(
+                        status: CDVCommandStatus_ERROR,
+                        messageAs: ErrorCode.jsonSerializeError.toDictionary(message: "[recorder: exportWithCompression] json encode error: \(err)")
+                        )
+                    self.commandDelegate.send(result, callbackId: command.callbackId)
                 }
             }
             else {
@@ -554,9 +682,10 @@ import Accelerate
             // audio file
             let audioFile = try! AVAudioFile(forWriting: filePath, settings: audioSettings)
             
-            // セッションを作成、有効化
-            self.audioSession = AVAudioSession.sharedInstance()
-            try self.audioSession?.setCategory(AVAudioSession.Category.playAndRecord)
+
+            try self.audioSession?.setCategory(AVAudioSessionCategoryPlayAndRecord,
+                                               mode: AVAudioSessionModeDefault,
+                                               options: AVAudioSessionCategoryOptions.allowBluetoothA2DP)
             try self.audioSession?.setActive(true)
             
             // write buffer
@@ -588,7 +717,7 @@ import Accelerate
     }
     
     // 音声をとめる
-    private func pauseRecord() -> Bool {
+    private func pauseRecord() throws -> Bool {
         // stop engine
         self.engine?.stop()
         self.engine?.inputNode.removeTap(onBus: 0)
@@ -599,6 +728,7 @@ import Accelerate
             self.audioSession = nil
         } catch let err {
             // エラーハンドリング
+            throw err
         }
         
         // 現在録音したデータを queue に追加する
@@ -649,7 +779,7 @@ import Accelerate
     }
     // folder 内のオーディオファイルを連結して返す
     private func joinRecord() -> Audio? {
-        var nextStartTime = CMTime.zero
+        var nextStartTime = kCMTimeZero
         var result: Audio?
         let composition = AVMutableComposition()
         let track = composition.addMutableTrack(withMediaType: AVMediaType.audio, preferredTrackID: kCMPersistentTrackID_Invalid)
@@ -660,23 +790,27 @@ import Accelerate
         let isJoinedFile = FileManager.default.fileExists(atPath: joinedFilePath.path);
         var audio_files:[String] = [];
         
-        var currentQueue = queue
+        var currentQueue = self.queue
         let audioFolderPath = recordingDir + "/\(folderID)/divided"
         
         if isJoinedFile {
             audio_files.append(joinedFilePath.absoluteString)
         }
         
-        currentQueue    .forEach { (item:Audio) in
-            audio_files.append(item.path)
+        print(currentQueue)
+        if (currentQueue.count > 0) {
+            currentQueue    .forEach { (item:Audio) in
+                audio_files.append(item.path)
+            }
         }
+
         
         for audio in audio_files {
             let fullPath = URL(string: audio)!
             if FileManager.default.fileExists(atPath:  fullPath.path) {
                 let asset = AVURLAsset(url: fullPath)
                 if let assetTrack = asset.tracks.first {
-                    let timeRange = CMTimeRange(start: CMTime.zero, duration: asset.duration)
+                    let timeRange = CMTimeRange(start: kCMTimeZero, duration: asset.duration)
                     do {
                         try track?.insertTimeRange(timeRange, of: assetTrack, at: nextStartTime)
                         nextStartTime = CMTimeAdd(nextStartTime, timeRange.duration)

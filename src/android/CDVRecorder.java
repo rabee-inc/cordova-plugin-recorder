@@ -1,4 +1,4 @@
-package jp.snuffy.rec;
+package jp.rabee.recorder;
 
 import android.Manifest;
 import android.app.Activity;
@@ -55,7 +55,7 @@ import omrecorder.PullTransport;
 import omrecorder.PullableSource;
 import omrecorder.Recorder;
 
-public class CDVRec extends CordovaPlugin {
+public class CDVRecorder extends CordovaPlugin {
 
     private static final String TAG = CDVRec.class.getSimpleName();
     // media settings
