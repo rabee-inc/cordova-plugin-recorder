@@ -1,23 +1,24 @@
+import AVFoundation
+import Foundation
+import Accelerate
+
 // buffer を audio にするやつ
 class AudioBufferConverter {
-    static var lpcmToAACConverter: AVAudioConverter! = nil
-    
+    static var lpcmToAACConverter: AVAudioConverter? = nil
 
     // buffer to convertToAAC
     static func convertToAAC(from buffer: AVAudioBuffer, error outError: NSErrorPointer) -> AVAudioCompressedBuffer? {
-
         let outputFormat = AudioBufferFormatHelper.AACFormat()
         let outBuffer = AVAudioCompressedBuffer(format: outputFormat!, packetCapacity: 8, maximumPacketSize: 768)
 
         if lpcmToAACConverter == nil {
             let inputFormat = buffer.format
             lpcmToAACConverter = AVAudioConverter(from: inputFormat, to: outputFormat!)
-            lpcmToAACConverter.bitRate = 32000
+            lpcmToAACConverter?.bitRate = 32000
         }
 
         self.convert(withConverter: lpcmToAACConverter, from: buffer, to: outBuffer, error: outError)
         return outBuffer
-
     }
 
     static var aacToLPCMConverter: AVAudioConverter! = nil
@@ -30,7 +31,6 @@ class AudioBufferConverter {
         //init converter once
         if aacToLPCMConverter == nil {
             let inputFormat = buffer.format
-
             aacToLPCMConverter = AVAudioConverter(from: inputFormat, to: outputFormat!)
         }
 
@@ -39,9 +39,9 @@ class AudioBufferConverter {
         return outBuffer
     }
 
-    static func convert(withConverter: AVAudioConverter, from sourceBuffer: AVAudioBuffer, to destinationBuffer: AVAudioBuffer, error outError: NSErrorPointer) {
+    static func convert(withConverter: AVAudioConverter?, from sourceBuffer: AVAudioBuffer, to destinationBuffer: AVAudioBuffer, error outError: NSErrorPointer) {
         var newBufferAvailable = true
-        let inputBlock : AVAudioConverterInputBlock = { inNumPackets, outStatus in
+        let inputBlock: AVAudioConverterInputBlock = { inNumPackets, outStatus in
             if newBufferAvailable {
                 outStatus.pointee = .haveData
                 newBufferAvailable = false
@@ -51,20 +51,19 @@ class AudioBufferConverter {
                 outStatus.pointee = .noDataNow
                 return nil
             }
-
         }
-
-        let status = withConverter.convert(to: destinationBuffer, error: outError, withInputFrom: inputBlock)
-        print("status: \(status.rawValue)")
+        if let status = withConverter?.convert(to: destinationBuffer, error: outError, withInputFrom: inputBlock) {
+            print("status: \(status.rawValue)")
+        }
     }
 }
+
 class AudioBufferFormatHelper {
     static func PCMFormat() -> AVAudioFormat? {
         return AVAudioFormat(commonFormat: .pcmFormatFloat32, sampleRate: 44100, channels: 1, interleaved: false)
     }
 
     static func AACFormat() -> AVAudioFormat? {
-
         var outDesc = AudioStreamBasicDescription(
             mSampleRate: 44100,
             mFormatID: kAudioFormatMPEG4AAC,
