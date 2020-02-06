@@ -1,9 +1,9 @@
 {
-  "name": "cordova-plugin-rec",
+  "name": "cordova-plugin-recorder",
   "version": "0.0.1",
-  "description": "cordova-plugin-rec",
+  "description": "cordova-plugin-recorder",
   "cordova" : {
-    "id": "cordova-plugin-rec",
+    "id": "cordova-plugin-recorder",
     "platforms": [
       "ios"
     ]

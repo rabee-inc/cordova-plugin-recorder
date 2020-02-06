@@ -1,16 +1,16 @@
 <?xml version="0.0.1" encoding="UTF-8"?>
-<plugin xmlns="http://apache.org/cordova/ns/plugins/1.0" id="cordova-plugin-rec" version="0.0.1">
-  <name>Rec</name>
+<plugin xmlns="http://apache.org/cordova/ns/plugins/1.0" id="cordova-plugin-recorder" version="0.0.1">
+  <name>recorder</name>
   <description>record audio plugin</description>
-  <js-module src="www/rec.js" name='Rec' >
-    <clobbers target="rec" />
+  <js-module src="www/recorder.js" name='Recorder' >
+    <clobbers target="recorder" />
   </js-module>
   <!-- iOS -->
   <platform name="ios">
     <config-file target="config.xml" parent="/*">
-      <feature name="Rec">
+      <feature name="Recorder">
         <param name="onload" value="true" />
-        <param name="ios-package" value="CDVRec" />
+        <param name="ios-package" value="CDVRecorder" />
       </feature>
       <preference name="deployment-target" value="10.0" />
     </config-file>
@@ -19,16 +19,14 @@
     <preference name="UseSwiftLanguageVersion" default="4" />
     
     <!-- Swift source -->
-    <source-file src="src/ios/CDVRec.swift" />
-    <source-file src="src/ios/CDVRecConverter.swift" />
-    <source-file src="src/ios/CDVRecRecorder.swift" />
-    <source-file src="src/ios/CDVRec-Bridging-Header.h" />
+    <source-file src="src/ios/CDVRecorder.swift" />
+    <source-file src="src/ios/CDVRecorder-Bridging-Header.h" />
   </platform>
   <!-- Android -->
   <platform name="android">
     <config-file target="res/xml/config.xml" parent="/*">
-      <feature name="Rec">
-        <param name="android-package" value="jp.snuffy.rec.CDVRec"/>
+      <feature name="Recorder">
+        <param name="android-package" value="jp.rabee.recorder.CDVRecorder"/>
         <param name="onload" value="true" />
       </feature>
       <preference name="android-minSdkVersion" value="19" />
