@@ -12,6 +12,7 @@ import Accelerate
     var commpressProgressCallBackId: String?
     var audioSettings: [String: Any] = [:]
     var audioSession: AVAudioSession?
+    
 
     // Audio の型定義
     struct Audio: Codable {
@@ -38,7 +39,7 @@ import Accelerate
             return ["code": self.rawValue, "message": message]
         }
     }
-
+    
 
     /* folder structure
      
@@ -83,6 +84,7 @@ import Accelerate
         ]
         queue = []
         currentAudios = []
+
     }
     
     
@@ -100,6 +102,9 @@ import Accelerate
                 self.commandDelegate.send(result, callbackId: command.callbackId)
             }
         }
+        
+        // 通知せセンター登録
+        NotificationCenter.default.addObserver(self, selector: #selector(self.handleAudioRouteChange(notification:)), name: NSNotification.Name.AVAudioSessionRouteChange, object: nil)
         // 録音したものを配置するルートフォルダを作成
         if !FileManager.default.fileExists(atPath: URL(fileURLWithPath: recordingDir).path) {
             do {
@@ -686,6 +691,7 @@ import Accelerate
             try self.audioSession?.setCategory(AVAudioSessionCategoryPlayAndRecord,
                                                mode: AVAudioSessionModeDefault,
                                                options: AVAudioSessionCategoryOptions.allowBluetoothA2DP)
+            
             try self.audioSession?.setActive(true)
             
             // write buffer
@@ -889,5 +895,60 @@ import Accelerate
     private func cordovaResultError(_ command: CDVInvokedUrlCommand, message: String) {
         let result = CDVPluginResult(status: CDVCommandStatus_ERROR, messageAs: message)
         self.commandDelegate.send(result, callbackId:command.callbackId)
+    }
+    
+    @objc private func handleAudioRouteChange(notification: Notification) {
+            
+        guard let audiosession = self.audioSession, let input = audiosession.currentRoute.inputs.first else {return}
+            
+        switch(input.portType) {
+        case AVAudioSessionPortBuiltInMic:
+            self.debugAlert(message: "マイクが取り外されてデフォルトのマイクになった: AVAudioSessionPortBuiltInMic")
+            break
+        case AVAudioSessionPortHeadsetMic:
+            self.debugAlert(message: "マイクが取り付けられてヘッドセットのマイクになった: AVAudioSessionPortHeadsetMic")
+            break
+        default:
+            return
+        }
+        
+//        guard
+//            let dict = notification.userInfo,
+//            let routeDescription:AVAudioSessionRouteDescription = dict[AVAudioSessionRouteChangePreviousRouteKey] as? AVAudioSessionRouteDescription else {return}
+//
+//
+//        let previousOutputPort:AVAudioSessionPortDescription = routeDescription.outputs[0]
+//        let previousInputPort:AVAudioSessionPortDescription = routeDescription.inputs[0]
+//
+//        // ヘッドフォンが取り外された
+//        if (previousInputPort.portType == AVAudioSessionPortHeadphones) {
+//            self.debugAlert(message: "ヘッドフォンが外された: AVAudioSessionPortHeadphones")
+//        }
+//
+//        // ヘッドセットが取り外された
+//        if (previousInputPort.portType == AVAudioSessionPortHeadsetMic) {
+//            self.debugAlert(message: "ヘッドセットマイクが外された: AVAudioSessionPortHeadsetMic")
+//        }
+//
+//        // マイクが追加された
+//        if (previousInputPort.portType == AVAudioSessionPortBuiltInMic) {
+//            self.debugAlert(message: "マイクの追加: AVAudioSessionPortBuiltInMic")
+//        }
+        
+    
+    }
+    
+    // for debug alert
+    private func debugAlert(message: String) {
+        DispatchQueue.main.sync {
+            let alert: UIAlertController = UIAlertController(title: "debug", message: message, preferredStyle:  UIAlertControllerStyle.alert)
+            let defaultAction: UIAlertAction = UIAlertAction(title: "OK", style: UIAlertActionStyle.default, handler:{
+                (action: UIAlertAction!) -> Void in
+                print("OK")
+            })
+            alert.addAction(defaultAction)
+            self.viewController.present(alert, animated: true, completion: nil)
+        }
+
     }
 }
