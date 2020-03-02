@@ -665,7 +665,7 @@ import Accelerate
 
             try self.audioSession?.setCategory(AVAudioSessionCategoryPlayAndRecord,
                                                mode: AVAudioSessionModeDefault,
-                                               options: [.allowBluetoothA2DP, .allowBluetooth, .allowAirPlay] )
+                                               options: [.allowBluetoothA2DP, .allowBluetooth, .allowAirPlay])
             
 
             try self.audioSession?.setActive(true)
@@ -877,11 +877,8 @@ import Accelerate
     }
     
     @objc private func handleAudioRouteChange(notification: Notification) {
-            
-            guard let engine = self.engine else {return}
-            engine.stop();
     // guard let audiosession = self.audioSession, let input = audiosession.currentRoute.inputs.first else {return}
-        
+
     //      switch(input.portType) {
     //      case AVAudioSessionPortBuiltInMic:
     //          self.debugAlert(message: "マイクが取り外されてデフォルトのマイクになった: AVAudioSessionPortBuiltInMic")
