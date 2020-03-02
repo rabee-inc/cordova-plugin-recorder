@@ -10,7 +10,6 @@ import Accelerate
     var isRecording = false
     var pushBufferCallBackId: String?
     var commpressProgressCallBackId: String?
-    var audioSettings: [String: Any] = [:]
     var audioSession: AVAudioSession?
     
 
@@ -75,13 +74,6 @@ import Accelerate
         print("[cordova plugin REC. intializing]")
         engine = AVAudioEngine()
         recordingDir = NSSearchPathForDirectoriesInDomains(.documentDirectory, .userDomainMask, true).first! + "/recording"
-        audioSettings = [
-            AVFormatIDKey: Int(kAudioFormatLinearPCM),
-            AVSampleRateKey: 44100.0,
-            AVNumberOfChannelsKey: 1,
-            AVEncoderBitRatePerChannelKey: 16,
-            AVEncoderAudioQualityKey: AVAudioQuality.high.rawValue
-        ]
         queue = []
         currentAudios = []
 
@@ -123,19 +115,7 @@ import Accelerate
     
     // initialize setting
     @objc func initSettings(_ command: CDVInvokedUrlCommand) {
-        guard let settings = command.arguments.first as? [String: Any] else {
-            let result = CDVPluginResult(
-                status: CDVCommandStatus_ERROR,
-                messageAs: ErrorCode.argumentError.toDictionary(message: "init settings error")
-                )
-            self.commandDelegate.send(result, callbackId: command.callbackId)
-            return
-        }
-        
-        for (key, value) in settings {
-            self.audioSettings[key] = value
-        }
-
+        // TODO: 使わないので後で消す
         // cordova result
         let result = CDVPluginResult(status: CDVCommandStatus_OK, messageAs: true)
         self.commandDelegate.send(result, callbackId: command.callbackId)
@@ -667,9 +647,6 @@ import Accelerate
     // start private func
     private func startRecord(path: URL) {
         do {
-            // audio setting
-            let audioSettings = self.audioSettings
-            
             // audio file name
             let timestamp = String(Int(NSDate().timeIntervalSince1970));
             let id = generateId(length: 16)
@@ -684,18 +661,20 @@ import Accelerate
             // base data
             let filePath = folderPath.appendingPathComponent("\(currentAudioName!).wav")
             
-            // audio file
-            let audioFile = try! AVAudioFile(forWriting: filePath, settings: audioSettings)
-            
+
 
             try self.audioSession?.setCategory(AVAudioSessionCategoryPlayAndRecord,
                                                mode: AVAudioSessionModeDefault,
-                                               options: AVAudioSessionCategoryOptions.allowBluetoothA2DP)
+                                               options: [.allowBluetoothA2DP, .allowBluetooth, .allowAirPlay] )
             
+
             try self.audioSession?.setActive(true)
+    
+            let micFormat = self.getInputFormat()
+            // audio file
+            let audioFile = try! AVAudioFile(forWriting: filePath, settings: self.getInputSettings()!)
             
-            // write buffer
-            self.engine?.inputNode.installTap(onBus: 0, bufferSize: UInt32(self.bufferSize), format: nil) { (buffer:AVAudioPCMBuffer, when:AVAudioTime) in
+            self.engine?.inputNode.installTap(onBus: 0, bufferSize: UInt32(self.bufferSize), format: micFormat) { (buffer:AVAudioPCMBuffer, when:AVAudioTime) in
                 // call back が登録されていたら
                 if self.pushBufferCallBackId != nil {
                     let b = Array(UnsafeBufferPointer(start: buffer.floatChannelData![0], count:Int(buffer.frameLength)))
@@ -899,45 +878,47 @@ import Accelerate
     
     @objc private func handleAudioRouteChange(notification: Notification) {
             
-        guard let audiosession = self.audioSession, let input = audiosession.currentRoute.inputs.first else {return}
+            guard let engine = self.engine else {return}
+            engine.stop();
+    // guard let audiosession = self.audioSession, let input = audiosession.currentRoute.inputs.first else {return}
+        
+    //      switch(input.portType) {
+    //      case AVAudioSessionPortBuiltInMic:
+    //          self.debugAlert(message: "マイクが取り外されてデフォルトのマイクになった: AVAudioSessionPortBuiltInMic")
+    //          break
+    //      case AVAudioSessionPortHeadsetMic:
+    //          self.debugAlert(message: "マイクが取り付けられてヘッドセットのマイクになった: AVAudioSessionPortHeadsetMic")
+    //          break
+    //      default:
+    //          return
+    //      }
+        
+    //        guard
+    //            let dict = notification.userInfo,
+    //            let routeDescription:AVAudioSessionRouteDescription = dict[AVAudioSessionRouteChangePreviousRouteKey] as? AVAudioSessionRouteDescription else {return}
+    //
+    //
+    //        let previousOutputPort:AVAudioSessionPortDescription = routeDescription.outputs[0]
+    //        let previousInputPort:AVAudioSessionPortDescription = routeDescription.inputs[0]
+    //
+    //        // ヘッドフォンが取り外された
+    //        if (previousInputPort.portType == AVAudioSessionPortHeadphones) {
+    //            self.debugAlert(message: "ヘッドフォンが外された: AVAudioSessionPortHeadphones")
+    //        }
+    //
+    //        // ヘッドセットが取り外された
+    //        if (previousInputPort.portType == AVAudioSessionPortHeadsetMic) {
+    //            self.debugAlert(message: "ヘッドセットマイクが外された: AVAudioSessionPortHeadsetMic")
+    //        }
+    //
+    //        // マイクが追加された
+    //        if (previousInputPort.portType == AVAudioSessionPortBuiltInMic) {
+    //            self.debugAlert(message: "マイクの追加: AVAudioSessionPortBuiltInMic")
+    //        }
             
-        switch(input.portType) {
-        case AVAudioSessionPortBuiltInMic:
-            self.debugAlert(message: "マイクが取り外されてデフォルトのマイクになった: AVAudioSessionPortBuiltInMic")
-            break
-        case AVAudioSessionPortHeadsetMic:
-            self.debugAlert(message: "マイクが取り付けられてヘッドセットのマイクになった: AVAudioSessionPortHeadsetMic")
-            break
-        default:
-            return
+        
         }
         
-//        guard
-//            let dict = notification.userInfo,
-//            let routeDescription:AVAudioSessionRouteDescription = dict[AVAudioSessionRouteChangePreviousRouteKey] as? AVAudioSessionRouteDescription else {return}
-//
-//
-//        let previousOutputPort:AVAudioSessionPortDescription = routeDescription.outputs[0]
-//        let previousInputPort:AVAudioSessionPortDescription = routeDescription.inputs[0]
-//
-//        // ヘッドフォンが取り外された
-//        if (previousInputPort.portType == AVAudioSessionPortHeadphones) {
-//            self.debugAlert(message: "ヘッドフォンが外された: AVAudioSessionPortHeadphones")
-//        }
-//
-//        // ヘッドセットが取り外された
-//        if (previousInputPort.portType == AVAudioSessionPortHeadsetMic) {
-//            self.debugAlert(message: "ヘッドセットマイクが外された: AVAudioSessionPortHeadsetMic")
-//        }
-//
-//        // マイクが追加された
-//        if (previousInputPort.portType == AVAudioSessionPortBuiltInMic) {
-//            self.debugAlert(message: "マイクの追加: AVAudioSessionPortBuiltInMic")
-//        }
-        
-    
-    }
-    
     // for debug alert
     private func debugAlert(message: String) {
         DispatchQueue.main.sync {
@@ -951,4 +932,15 @@ import Accelerate
         }
 
     }
+    
+    private func getInputFormat() -> AVAudioFormat? {
+        guard let engine = self.engine else {return nil}
+        return engine.inputNode.inputFormat(forBus: 0)
+    }
+    
+    private func getInputSettings() -> [String: Any]? {
+        guard let format = self.getInputFormat() else {return nil}
+        return format.settings
+    }
+    
 }
