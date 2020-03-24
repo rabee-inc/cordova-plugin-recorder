@@ -57,7 +57,7 @@ import omrecorder.Recorder;
 
 public class CDVRecorder extends CordovaPlugin {
 
-    private static final String TAG = CDVRec.class.getSimpleName();
+    private static final String TAG = CDVRecorder.class.getSimpleName();
     // media settings
     private static final int SAMPLE_RATE = 44100;
     private static final int SAMPLE_RATE_INDEX = 4;
