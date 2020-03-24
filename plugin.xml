@@ -35,9 +35,9 @@
       <uses-permission android:name="android.permission.RECORD_AUDIO" />
     </config-file>
     
-    <source-file src="src/android/CDVRec.java" target-dir="src/jp/snuffy/rec" />
-    <source-file src="src/android/WavFile.java" target-dir="src/jp/snuffy/rec" />
-    <source-file src="src/android/WavFileException.java" target-dir="src/jp/snuffy/rec" />
+    <source-file src="src/android/CDVRec.java" target-dir="src/jp/rabee/recorder" />
+    <source-file src="src/android/WavFile.java" target-dir="src/jp/rabee/recorder" />
+    <source-file src="src/android/WavFileException.java" target-dir="src/jp/rabee/recorder" />
 
     <framework src="build.gradle" custom="true" type="gradleReference"/>
   </platform>

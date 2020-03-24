@@ -1,4 +1,4 @@
-package jp.snuffy.rec;
+package jp.rabee.recorder;
 
 
 /**
