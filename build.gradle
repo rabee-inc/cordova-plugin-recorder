@@ -1,0 +1,4 @@
+dependencies {
+    implementation 'nl.bravobit:android-ffmpeg:1.1.7'
+    implementation 'com.kailashdabhi:om-recorder:1.1.5'
+}
