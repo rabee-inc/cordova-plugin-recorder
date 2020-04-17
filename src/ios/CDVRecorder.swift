@@ -84,7 +84,8 @@ import Accelerate
     @objc func initialize(_ command: CDVInvokedUrlCommand) {
         // 録音する許可がされているか？
         audioSession = AVAudioSession.sharedInstance()
-        audioSession?.requestRecordPermission { granted in
+        audioSession?.requestRecordPermission {[weak self] granted in
+            guard let self = self else { return }
             if !granted {
                 let message = ErrorCode.permissionError.toDictionary(message: "deny permission")
                 let result = CDVPluginResult(
@@ -474,7 +475,8 @@ import Accelerate
             exportSession.outputFileType = AVFileType.wav
             exportSession.outputURL = cutFilePath
             
-            exportSession.exportAsynchronously {
+            exportSession.exportAsynchronously { [weak self] in
+                guard let self = self else { return }
                 switch exportSession.status {
                 case .completed:
                     
@@ -527,7 +529,8 @@ import Accelerate
     }
     
     @objc func exportWithCompression(_ command: CDVInvokedUrlCommand) {
-        commandDelegate.run(inBackground: {
+        commandDelegate.run(inBackground: { [weak self] in
+            guard let self = self else { return }
             let semaphore = DispatchSemaphore(value: 0)
             var audio: Audio?
             
@@ -674,7 +677,8 @@ import Accelerate
             // audio file
             let audioFile = try! AVAudioFile(forWriting: filePath, settings: self.getInputSettings()!)
             
-            self.engine?.inputNode.installTap(onBus: 0, bufferSize: UInt32(self.bufferSize), format: micFormat) { (buffer:AVAudioPCMBuffer, when:AVAudioTime) in
+            self.engine?.inputNode.installTap(onBus: 0, bufferSize: UInt32(self.bufferSize), format: micFormat) {  [weak self] (buffer:AVAudioPCMBuffer, when:AVAudioTime) in
+                guard let self = self else {return}
                 // call back が登録されていたら
                 if self.pushBufferCallBackId != nil {
                     let b = Array(UnsafeBufferPointer(start: buffer.floatChannelData![0], count:Int(buffer.frameLength)))
@@ -818,7 +822,8 @@ import Accelerate
             exportSession.outputFileType = AVFileType.wav
             exportSession.outputURL = concatFileSaveURL
             
-            exportSession.exportAsynchronously(completionHandler: {
+            exportSession.exportAsynchronously(completionHandler: { [weak self] in
+                guard let self = self else { return }
                 switch exportSession.status {
                 
                 // ファイル連結成功時
