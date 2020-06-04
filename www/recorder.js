@@ -24,6 +24,20 @@ const createAction = (action, params) => {
 
 // Recorder 本体
 const Recorder = {
+  // bgm namespace
+  bgm: {
+    set: (params) => {
+      const {urls, loop} = params
+      // url は一つ以上欲しい
+      if (!urls || urls.length === 0) {
+        return Promise.reject('Please set at least one bgm url resource')
+      }
+
+      return createAction('setBgm', params)
+    },
+    list: (params) => createAction('getBgmList', params),
+    clear: (params) => createAction('clearBgm', params),
+  },
   initialize: (params) => createAction('initialize', params),
   start: (params) => createAction('start', params),
   pause: (params) => createAction('pause', params),
