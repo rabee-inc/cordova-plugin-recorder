@@ -5,7 +5,7 @@ var exec = require("cordova/exec");
 
 // cordova の実行ファイルを登録する
 const registerCordovaExecuter = (action, onSuccess, onFail, param) => {
-  return exec(onSuccess, onFail, 'AdvanceDownloader', action, [param]);
+  return exec(onSuccess, onFail, 'Recorder', action, [param]);
 };
 
 // promise で返す。 cordova の excuter の wrapper
@@ -23,13 +23,13 @@ const createAction = (action, params) => {
 };
 
 // Recorder 本体
-const Recorder = {
+const recorder = {
   // bgm namespace
   bgm: {
     set: (params) => {
-      const {urls, loop} = params
+      const {url, loop} = params
       // url は一つ以上欲しい
-      if (!urls || urls.length === 0) {
+      if (!url) {
         return Promise.reject('Please set at least one bgm url resource')
       }
 
@@ -37,6 +37,8 @@ const Recorder = {
     },
     list: (params) => createAction('getBgmList', params),
     clear: (params) => createAction('clearBgm', params),
+    play: (params) => createAction('playBgm', params),
+    pause: (params) => createAction('pauseBgm', params),
   },
   initialize: (params) => createAction('initialize', params),
   start: (params) => createAction('start', params),
@@ -62,6 +64,11 @@ const Recorder = {
       param
     ]);
   },
+  onChangeEarPhoneConnectedStatus: (callback, onFail, param) => {
+    return exec(callback, onFail, "Recorder", "setOnChangeEarPhoneConnectedStatus", [
+      param
+    ]);
+  },
 };
 
-module.exports = Recorder;
+module.exports = recorder;

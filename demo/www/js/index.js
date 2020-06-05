@@ -23,55 +23,50 @@ document.addEventListener('deviceready', onDeviceReady, false);
 function onDeviceReady() {   
     // button
     const button1 = document.querySelector('.button1') 
-    button1.addEventListener('click', hello);
+    const button2 = document.querySelector('.button2') 
+    const button3 = document.querySelector('.button3') 
+    
+    button1.addEventListener('click', play);
+    button2.addEventListener('click', pause);
+    button3.addEventListener('click', resume);
+
+    recorder.initialize().then(() => {
+        recorder.onChangeEarPhoneConnectedStatus((res) => {
+            const message = res.isConnected ? 'イヤフォンが接続されました' : 'イヤフォンが外されました'
+            window.alert(message)
+        }, () => {}, {})
+    });
 }
 
-function hello() {
-
+async function play() {
     const recorder = window.recorder;
+    const promises = [];
 
-    // イヤフォンを付けてようと付けてまいと BGM をセットすることはできるし、録音することはできる
+    // bgm 1つ目
+    promises.push(recorder.bgm.set({
+        loop: false,
+        url: "https://storage.googleapis.com/staging-rec-rabee-jp.appspot.com/bgm%2Fv2%2Fsampo.m4a?GoogleAccessId=firebase-adminsdk-sgf4g%40staging-rec-rabee-jp.iam.gserviceaccount.com&Expires=16446985200&Signature=uR78ug9vDE8yEBameae6vJLB%2BZIkjTVhoEL1GPmRYcZgKH32BCiQgiktK2I21P212LwrHDFWGUKeuT8Zs3XQBY%2Bc6xLOpYHfeMfLYA0UBCNRx87QO%2FZX0P6NID6WhGXP4%2FIlkp%2Bj5t%2BhLnhjOOkmXGP52ote7epMTL3uCA5xDVU3kKOWjJ2xjqySK0JqU8z%2B73uumuTu1VD313ahwuXkJ6iMT9YOUPr1LwDB53FD5lDbN5biTC4FedGWawQ5B6ZXi5kJybuY0VEBi2Kxb35xOwqgUR8wTo0pL5bXQx4YrJZZ27vcyZRSwukXa0UaKTGhL0brZuQse%2F7h267U8TFzYw%3D%3D",
+        volume: 1.0,
+    }));
 
-    // bgm grounp 1
-    const bgm1_1 = 'https://hogehoeg.com/bgm1_1.mp3'
-    const bgm1_2 = 'https://hogehoeg.com/bgm1_2.mp3'
-    
-    // bgm grounp 2
-    const bgm2_1 = 'https://hogehoeg.com/bgm2_1.mp3'
-    const bgm2_2 = 'https://hogehoeg.com/bgm2_1.mp3'
+    // bgm 2つ目
+    promises.push(recorder.bgm.set({
+        loop: true,
+        url: "https://storage.googleapis.com/staging-rec-rabee-jp.appspot.com/bgm%2Fv2%2Fsamba.m4a?GoogleAccessId=firebase-adminsdk-sgf4g%40staging-rec-rabee-jp.iam.gserviceaccount.com&Expires=16446985200&Signature=Lw3BHCPrl3cgc85usOzci8PSefjSMFYXB%2FiQr1piwIQg3qNZ5Uu3b2TLd%2Bw214j76VPW076Jxbwcna5obaNbKz57mf3IyJLCVxs3Gi99ev2CsJrnc5TiU2cUp2rEoq47%2FV6UUx8vHlrTSIRWsV9kyTW%2BObZ9g5IezsBmi25JR%2FD%2Byf%2BlEBo55DKzUtd7M1ZPsicMfbCwxupsqEmvacGn9q6Ny9ZZIHh1QVT%2B1f4waVNrY2VI7HZWYN3ys6mXTrShZoNKWHzYdrez8208NMbXnDZuVqrlzhsc35m6CwVUosRADaoMEp0Ob%2F8Z%2B1LvLJ4RVPZmShF3ZUGRHrmynzuuAw%3D%3D",
+        volume: 1.0,
+    }));
 
-    // bgm grouop 1
-    recorder.bgm.set({
-        urls: [bgm1_1, bgm1_2],
-        loop: true, // loop を true にするとセットされた bgm がループされる
-    });
-
-    // bgm grouop 2
-    recorder.bgm.set({
-        urls: [bgm2_1, bgm2_2],
-        loop: false, // loop を false にするとセットされた bgm がループされない
-    });
-
-    recorder.bgm.clear();
-
-    recorder.isEearPhone()
-
-
-    // earphone のステータスが変わると発火する
-    // earphone の抜き差しを検知して、録音を止めるか？
-    recorder.onChangeEarPhoneStatus(({}) => {
-
-    });
-
-
+    await Promise.all(promises);
 
     recorder.start();
-
-    window.recorder.add(addRequestParams).then((v) => {
-        window.alert(v)
-    });
 }
 
+function pause() {
+    const recorder = window.recorder;
+    recorder.pause();
+}
 
-function add() {  
+function resume() {
+    const recorder = window.recorder;
+    recorder.resume();
 }

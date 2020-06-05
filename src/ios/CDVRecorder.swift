@@ -9,10 +9,10 @@ import Accelerate
     var recordingDir = ""
     var isRecording = false
     var pushBufferCallBackId: String?
+    var changeConnectedEarPhoneStatusCallBackId: String?
     var commpressProgressCallBackId: String?
     var audioSession: AVAudioSession?
-    
-
+    var headphonesConnected = false
     // Audio の型定義
     struct Audio: Codable {
         var name: String
@@ -39,6 +39,13 @@ import Accelerate
         }
     }
     
+    struct CDVRecorderBgm {
+        var urls: [String]
+        var loop: Bool
+        var volume: Float = 1.0
+        var player: AVQueuePlayer
+        var looper: AVPlayerLooper?
+    }
 
     /* folder structure
      
@@ -68,6 +75,7 @@ import Accelerate
     var currentAudios: [Audio] = []// 現在録音中のファイルを順番を保証して配置
     var currentJoinedAudioName: String? // 連結済みファイルの最新のものの名前
     var queue: [Audio] = []
+    var bgms: [CDVRecorderBgm] = []
     
     // called starting app
     override func pluginInitialize() {
@@ -76,7 +84,7 @@ import Accelerate
         recordingDir = NSSearchPathForDirectoriesInDomains(.documentDirectory, .userDomainMask, true).first! + "/recording"
         queue = []
         currentAudios = []
-
+        bgms = []
     }
     
     
@@ -93,6 +101,9 @@ import Accelerate
                     messageAs:message
                     )
                 self.commandDelegate.send(result, callbackId: command.callbackId)
+            }
+            else {
+                self.commandDelegate.send(CDVPluginResult(status: CDVCommandStatus_OK, messageAs: true), callbackId:command.callbackId)
             }
         }
         
@@ -456,6 +467,7 @@ import Accelerate
         // カット
         do {
             try audioCompositionTrack.insertTimeRange(range, of: audioAssetTrack, at: kCMTimeZero)
+            seekBgm(time: end)
         }
         catch let error {
             print(error) // TODO: ここはエラー返さなくていいの？
@@ -635,6 +647,14 @@ import Accelerate
         })
     }
     
+    @objc func setOnChangeEarPhoneConnectedStatus(_ command: CDVInvokedUrlCommand) {
+        guard let callbackId = command.callbackId else {return}
+        changeConnectedEarPhoneStatusCallBackId = callbackId
+        let result = CDVPluginResult(status: CDVCommandStatus_OK, messageAs: true)
+        result?.keepCallback = true
+        self.commandDelegate.send(result, callbackId: command.callbackId)
+    }
+    
     private func removeFolder(id: String) -> Error? {
         let folderUrl = URL(fileURLWithPath: recordingDir + "/\(id)")
         if FileManager.default.fileExists(atPath: folderUrl.path) {
@@ -647,14 +667,38 @@ import Accelerate
         return nil
     }
     
+    private func isConnectedHeadphones() -> Bool {
+        let outputs = AVAudioSession.sharedInstance().currentRoute.outputs
+        var flag = false
+        for output in outputs {
+            let portType = output.portType
+            if  portType == AVAudioSessionPortHeadphones ||
+                portType == AVAudioSessionPortBluetoothA2DP ||
+                portType == AVAudioSessionPortBluetoothLE ||
+                portType == AVAudioSessionPortBluetoothHFP
+            {
+                flag = true;
+            }
+        }
+        return flag
+    }
+    
     // start private func
     private func startRecord(path: URL) {
+        // ヘッドフォンがつけられていたらミュート解除
+        if (self.isConnectedHeadphones()) {
+            self.resignMuteBgm()
+        }
+        // ヘッドフォンが抜かれていたらミュート
+        else {
+            self.muteBgm()
+        }
+        playBgm()
         do {
             // audio file name
             let timestamp = String(Int(NSDate().timeIntervalSince1970));
             let id = generateId(length: 16)
             currentAudioName = "\(id)_\(timestamp)";
-            
             // フォルダがなかったらフォルダ生成
             let folderPath = URL(string: path.absoluteString + "/queue")!;
             if (!FileManager.default.fileExists(atPath: folderPath.absoluteString)) {
@@ -705,11 +749,12 @@ import Accelerate
         }
     }
     
-    // 音声をとめる
+    // 録音をとめる
     private func pauseRecord() throws -> Bool {
         // stop engine
         self.engine?.stop()
         self.engine?.inputNode.removeTap(onBus: 0)
+        self.pauseBgm() // bgm も停止
         
         do {
             // セッションを非アクティブ化
@@ -881,45 +926,7 @@ import Accelerate
         self.commandDelegate.send(result, callbackId:command.callbackId)
     }
     
-    @objc private func handleAudioRouteChange(notification: Notification) {
-    // guard let audiosession = self.audioSession, let input = audiosession.currentRoute.inputs.first else {return}
 
-    //      switch(input.portType) {
-    //      case AVAudioSessionPortBuiltInMic:
-    //          self.debugAlert(message: "マイクが取り外されてデフォルトのマイクになった: AVAudioSessionPortBuiltInMic")
-    //          break
-    //      case AVAudioSessionPortHeadsetMic:
-    //          self.debugAlert(message: "マイクが取り付けられてヘッドセットのマイクになった: AVAudioSessionPortHeadsetMic")
-    //          break
-    //      default:
-    //          return
-    //      }
-        
-    //        guard
-    //            let dict = notification.userInfo,
-    //            let routeDescription:AVAudioSessionRouteDescription = dict[AVAudioSessionRouteChangePreviousRouteKey] as? AVAudioSessionRouteDescription else {return}
-    //
-    //
-    //        let previousOutputPort:AVAudioSessionPortDescription = routeDescription.outputs[0]
-    //        let previousInputPort:AVAudioSessionPortDescription = routeDescription.inputs[0]
-    //
-    //        // ヘッドフォンが取り外された
-    //        if (previousInputPort.portType == AVAudioSessionPortHeadphones) {
-    //            self.debugAlert(message: "ヘッドフォンが外された: AVAudioSessionPortHeadphones")
-    //        }
-    //
-    //        // ヘッドセットが取り外された
-    //        if (previousInputPort.portType == AVAudioSessionPortHeadsetMic) {
-    //            self.debugAlert(message: "ヘッドセットマイクが外された: AVAudioSessionPortHeadsetMic")
-    //        }
-    //
-    //        // マイクが追加された
-    //        if (previousInputPort.portType == AVAudioSessionPortBuiltInMic) {
-    //            self.debugAlert(message: "マイクの追加: AVAudioSessionPortBuiltInMic")
-    //        }
-            
-        
-        }
         
     // for debug alert
     private func debugAlert(message: String) {
@@ -943,6 +950,167 @@ import Accelerate
     private func getInputSettings() -> [String: Any]? {
         guard let format = self.getInputFormat() else {return nil}
         return format.settings
+    }
+    
+}
+
+extension CDVRecorder {
+    // BGM だけ再生する
+    @objc func playBgm(_ command: CDVInvokedUrlCommand)  {
+        playBgm()
+    }
+    
+    // BGM だけ停止する
+    @objc func pauseBgm(_ command: CDVInvokedUrlCommand)  {
+        pauseBgm()
+    }
+    
+    // BGM をセットする
+    @objc func setBgm(_ command: CDVInvokedUrlCommand)  {
+        let value = command.argument(at: 0) as? [String: Any]
+        guard
+            let val = value, let url = val["url"] as? String,
+            let loop = val["loop"] as? Bool,
+            let volume = val["volume"] as? Float else {return}
+        
+        do {
+            var looper: AVPlayerLooper?
+            let bgmURL = URL(string: url)!
+            let playerItem = AVPlayerItem(url: bgmURL)
+            let player = AVQueuePlayer(items: [playerItem])
+            player.volume = Float(volume)
+            if(loop) {
+                looper = AVPlayerLooper(player: player, templateItem: playerItem)
+            }
+             
+            let bgm = CDVRecorderBgm(urls: [url], loop: true, volume: Float(volume), player: player, looper: looper)
+            bgms.append(bgm)
+            self.commandDelegate.send(CDVPluginResult(status: CDVCommandStatus_OK, messageAs: "set"), callbackId: command.callbackId)
+        }
+        catch let error {
+            self.commandDelegate.send(CDVPluginResult(status: CDVCommandStatus_ERROR, messageAs: error.localizedDescription), callbackId: command.callbackId)
+        }
+    }
+
+    @objc func clearBgm(_ command: CDVInvokedUrlCommand)  {
+        // プレイヤーをストップして、全ての BGM を削除する
+        bgms.forEach({ bgm in
+            bgm.player.pause()
+            bgm.player.removeAllItems()
+        })
+        bgms = []
+        commandDelegate.send(CDVPluginResult(status: CDVCommandStatus_OK, messageAs: true), callbackId: command.callbackId)
+    }
+
+    @objc func listBgm(_ command: CDVInvokedUrlCommand)  {
+        
+    }
+    // play する
+    private func playBgm() {
+        bgms.forEach({bgm in
+            bgm.player.play();
+        });
+    }
+    // pause する
+    private func pauseBgm() {
+        bgms.forEach({bgm in
+            bgm.player.pause();
+        });
+    }
+    // シークする
+    private func seekBgm(time: CMTime) {
+        bgms.forEach({bgm in
+            bgm.player.currentItem?.seek(to: time)
+        });
+    }
+    // ミュートにする
+    private func muteBgm() {
+        bgms.forEach({bgm in
+            bgm.player.volume = 0.5
+        });
+    }
+    // ミュート解除
+    private func resignMuteBgm() {
+        bgms.forEach({bgm in
+            bgm.player.volume = 1.0
+        });
+    }
+}
+
+// for mic or head set
+extension CDVRecorder {
+    // ヘッドフォンが装着されたら
+    @objc private func handleAudioRouteChange(notification: Notification) {
+        guard let userInfo = notification.userInfo,
+            let reasonValue = userInfo[AVAudioSessionRouteChangeReasonKey] as? UInt,
+            let reason = AVAudioSession.RouteChangeReason(rawValue:reasonValue) else {
+                return
+        }
+        switch reason {
+            case .newDeviceAvailable:
+                let session = AVAudioSession.sharedInstance()
+                for output in session.currentRoute.outputs {
+                    let portType = output.portType
+                    if  portType == AVAudioSessionPortHeadphones ||
+                        portType == AVAudioSessionPortBluetoothA2DP ||
+                        portType == AVAudioSessionPortBluetoothLE ||
+                        portType == AVAudioSessionPortBluetoothHFP
+                    {
+                        headphonesConnected = true
+                        if (self.isRecording) {
+                            do {
+                                try self.engine?.start()
+                                resignMuteBgm()
+                                self.playBgm()
+                            }
+                            catch {
+                                return
+                            }
+                        }
+                        if (changeConnectedEarPhoneStatusCallBackId != nil) {
+                            let result = CDVPluginResult(status: CDVCommandStatus_OK, messageAs: ["isConnected": true])
+                            result?.keepCallback = true
+                            commandDelegate.send(result, callbackId: changeConnectedEarPhoneStatusCallBackId)
+                        }
+                        print("headphone plugged in")
+                    }
+                    break
+                }
+            case .oldDeviceUnavailable:
+                if let previousRoute =
+                    userInfo[AVAudioSessionRouteChangePreviousRouteKey] as? AVAudioSessionRouteDescription {
+                    for output in previousRoute.outputs {
+                        let portType = output.portType
+                        if  portType == AVAudioSessionPortHeadphones ||
+                            portType == AVAudioSessionPortBluetoothA2DP ||
+                            portType == AVAudioSessionPortBluetoothLE ||
+                            portType == AVAudioSessionPortBluetoothHFP
+                        {
+                            headphonesConnected = false
+                            if (self.isRecording) {
+                                do {
+                                    try self.engine?.start()
+                                    self.muteBgm()
+                                    self.playBgm()
+                                    
+                                }
+                                catch {
+                                    return
+                                }
+                            }
+                            if (changeConnectedEarPhoneStatusCallBackId != nil) {
+                                let result = CDVPluginResult(status: CDVCommandStatus_OK, messageAs: ["isConnected": false])
+                                result?.keepCallback = true
+                                commandDelegate.send(result, callbackId: changeConnectedEarPhoneStatusCallBackId)
+                            }
+                            print("headphone pulled out")
+                        }
+
+                        break
+                    }
+                }
+            default: ()
+        }
     }
     
 }
