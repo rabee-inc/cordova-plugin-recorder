@@ -1,6 +1,7 @@
 import AVFoundation
 import Foundation
 import Accelerate
+import Alamofire
 
 @objc(CDVRecorder) class CDVRecorder : CDVPlugin, AVAudioPlayerDelegate {
     let bufferSize = 4096
@@ -10,9 +11,14 @@ import Accelerate
     var isRecording = false
     var pushBufferCallBackId: String?
     var changeConnectedEarPhoneStatusCallBackId: String?
+    var completeDownloadCallbackId: String?
+    var downloadBgmProgressCallbackId: String?
+    
     var commpressProgressCallBackId: String?
     var audioSession: AVAudioSession?
     var headphonesConnected = false
+    var audioMixer: AVAudioMixerNode?
+    private var progress: Progress?
     // Audio の型定義
     struct Audio: Codable {
         var name: String
@@ -39,13 +45,7 @@ import Accelerate
         }
     }
     
-    struct CDVRecorderBgm {
-        var urls: [String]
-        var loop: Bool
-        var volume: Float = 1.0
-        var player: AVQueuePlayer
-        var looper: AVPlayerLooper?
-    }
+
 
     /* folder structure
      
@@ -80,7 +80,17 @@ import Accelerate
     // called starting app
     override func pluginInitialize() {
         print("[cordova plugin REC. intializing]")
+        // エンジンとミキサーの初期化
         engine = AVAudioEngine()
+        audioMixer = AVAudioMixerNode()
+        engine?.attach(audioMixer!)
+        
+        // download progress の初期化
+        progress = Progress()
+        _ = progress?.observe(\.fractionCompleted, changeHandler: { p,_  in
+            print(p.fractionCompleted)
+        })
+        
         recordingDir = NSSearchPathForDirectoriesInDomains(.documentDirectory, .userDomainMask, true).first! + "/recording"
         queue = []
         currentAudios = []
@@ -107,7 +117,7 @@ import Accelerate
             }
         }
         
-        // 通知せセンター登録
+        // 通知センター登録
         NotificationCenter.default.addObserver(self, selector: #selector(self.handleAudioRouteChange(notification:)), name: NSNotification.Name.AVAudioSessionRouteChange, object: nil)
         // 録音したものを配置するルートフォルダを作成
         if !FileManager.default.fileExists(atPath: URL(fileURLWithPath: recordingDir).path) {
@@ -467,7 +477,6 @@ import Accelerate
         // カット
         do {
             try audioCompositionTrack.insertTimeRange(range, of: audioAssetTrack, at: kCMTimeZero)
-            seekBgm(time: end)
         }
         catch let error {
             print(error) // TODO: ここはエラー返さなくていいの？
@@ -650,9 +659,16 @@ import Accelerate
     @objc func setOnChangeEarPhoneConnectedStatus(_ command: CDVInvokedUrlCommand) {
         guard let callbackId = command.callbackId else {return}
         changeConnectedEarPhoneStatusCallBackId = callbackId
-        let result = CDVPluginResult(status: CDVCommandStatus_OK, messageAs: true)
+        
+//        let result = CDVPluginResult(status: CDVCommandStatus_OK, messageAs: ["isConnected": self.isConnectedHeadphones()])
+        let result = CDVPluginResult(status: CDVCommandStatus_OK, messageAs: ["isConnected": true])
         result?.keepCallback = true
         self.commandDelegate.send(result, callbackId: command.callbackId)
+    }
+    
+    @objc func setOnDownloadBgmProgress(_ command: CDVInvokedUrlCommand) {
+        guard let callbackId = command.callbackId else {return}
+        downloadBgmProgressCallbackId = callbackId
     }
     
     private func removeFolder(id: String) -> Error? {
@@ -686,14 +702,15 @@ import Accelerate
     // start private func
     private func startRecord(path: URL) {
         // ヘッドフォンがつけられていたらミュート解除
-        if (self.isConnectedHeadphones()) {
-            self.resignMuteBgm()
-        }
-        // ヘッドフォンが抜かれていたらミュート
-        else {
-            self.muteBgm()
-        }
-        playBgm()
+//        if (self.isConnectedHeadphones()) {
+//            self.resignMuteBgm()
+//        }
+//        // ヘッドフォンが抜かれていたらミュート
+//        else {
+//            self.muteBgm()
+//        }
+        
+        
         do {
             // audio file name
             let timestamp = String(Int(NSDate().timeIntervalSince1970));
@@ -709,19 +726,18 @@ import Accelerate
             let filePath = folderPath.appendingPathComponent("\(currentAudioName!).wav")
             
 
-
+            // audioSession をアクティブにする
             try self.audioSession?.setCategory(AVAudioSessionCategoryPlayAndRecord,
                                                mode: AVAudioSessionModeDefault,
                                                options: [.allowBluetoothA2DP, .allowBluetooth, .allowAirPlay])
-            
-
             try self.audioSession?.setActive(true)
-    
+            
+            // マイクのフォーマット
             let micFormat = self.getInputFormat()
             // audio file
             let audioFile = try! AVAudioFile(forWriting: filePath, settings: self.getInputSettings()!)
-            
-            self.engine?.inputNode.installTap(onBus: 0, bufferSize: UInt32(self.bufferSize), format: micFormat) {  [weak self] (buffer:AVAudioPCMBuffer, when:AVAudioTime) in
+            // マイクのインストール
+            engine?.inputNode.installTap(onBus: 0, bufferSize: UInt32(self.bufferSize), format: micFormat) {  [weak self] (buffer:AVAudioPCMBuffer, when:AVAudioTime) in
                 guard let self = self else {return}
                 // call back が登録されていたら
                 if self.pushBufferCallBackId != nil {
@@ -736,14 +752,18 @@ import Accelerate
                     print("[cdv plugin REC: error]", err)
                 }
             }
-
-            // engine start
-            do {
-                try self.engine?.start()
-                audioIndex += 1 // increment index
-            } catch let error {
-                print("[cdv plugin REC] engin start error", error)
+            
+            // engine のスタートとストップは非同期処理しないとタイミングがおかしくなる
+            DispatchQueue.main.async {
+                do {
+                    try self.engine?.start()
+                    self.playBgm()
+                    self.audioIndex += 1 // increment index
+                 } catch let error {
+                     print("[cdv plugin REC] engin start error", error)
+                 }
             }
+ 
         } catch let error {
             print("[cdv plugin REC] Audio file error", error)
         }
@@ -752,9 +772,10 @@ import Accelerate
     // 録音をとめる
     private func pauseRecord() throws -> Bool {
         // stop engine
+        self.pauseBgm() // bgm も停止
         self.engine?.stop()
         self.engine?.inputNode.removeTap(onBus: 0)
-        self.pauseBgm() // bgm も停止
+ 
         
         do {
             // セッションを非アクティブ化
@@ -969,34 +990,63 @@ extension CDVRecorder {
     @objc func setBgm(_ command: CDVInvokedUrlCommand)  {
         let value = command.argument(at: 0) as? [String: Any]
         guard
-            let val = value, let url = val["url"] as? String,
+            let engine = self.engine,
+            let audioMixer = self.audioMixer,
+            let val = value,
+            let name = val["name"] as? String,
+            let url = val["url"] as? String,
             let loop = val["loop"] as? Bool,
             let volume = val["volume"] as? Float else {return}
         
+        let seek = value?["seek"] as? Double
         do {
-            var looper: AVPlayerLooper?
-            let bgmURL = URL(string: url)!
-            let playerItem = AVPlayerItem(url: bgmURL)
-            let player = AVQueuePlayer(items: [playerItem])
-            player.volume = Float(volume)
-            if(loop) {
-                looper = AVPlayerLooper(player: player, templateItem: playerItem)
-            }
-             
-            let bgm = CDVRecorderBgm(urls: [url], loop: true, volume: Float(volume), player: player, looper: looper)
+            // エンジンに BGM を付与
+            let audioPlayerNode = AVAudioPlayerNode()
+            engine.attach(audioPlayerNode)
+            engine.connect(audioPlayerNode, to: audioMixer, format: nil)
+            engine.connect(audioMixer, to: engine.mainMixerNode, format: nil)
+            // BGMを作成
+            let bgm = CDVRecorderBgm(name: name ,urls: [url], loop: loop, volume: volume, seek: seek, playerNode: audioPlayerNode)
+            // BGM を追加
             bgms.append(bgm)
+            
+            // cordova に報告
             self.commandDelegate.send(CDVPluginResult(status: CDVCommandStatus_OK, messageAs: "set"), callbackId: command.callbackId)
         }
         catch let error {
             self.commandDelegate.send(CDVPluginResult(status: CDVCommandStatus_ERROR, messageAs: error.localizedDescription), callbackId: command.callbackId)
         }
     }
-
+    
+    @objc func hoge(_ notification: Notification) {
+        print(notification)
+    }
+    
+    // 指定の秒数までBGMを動かす
+    @objc func seekBgm(_ command: CDVInvokedUrlCommand) {
+        guard let s = command.argument(at: 0) as? NSNumber else {
+            let result = CDVPluginResult(
+                status: CDVCommandStatus_ERROR,
+                messageAs: ErrorCode.argumentError.toDictionary(message: "[recorder: getAudio] First argument required. Please specify number")
+                )
+            self.commandDelegate.send(result, callbackId: command.callbackId)
+            return
+        }
+        let seconds = s.floatValue
+        seekBgm(time: Double(seconds))
+        commandDelegate.send(CDVPluginResult(status: CDVCommandStatus_OK, messageAs: true), callbackId: command.callbackId)
+    }
+    // 0秒まで戻る
+    @objc func resetBgmTime(_ command: CDVInvokedUrlCommand) {
+        seekBgm(time: Double(0.0))
+        commandDelegate.send(CDVPluginResult(status: CDVCommandStatus_OK, messageAs: true), callbackId: command.callbackId)
+    }
+    
     @objc func clearBgm(_ command: CDVInvokedUrlCommand)  {
         // プレイヤーをストップして、全ての BGM を削除する
         bgms.forEach({ bgm in
-            bgm.player.pause()
-            bgm.player.removeAllItems()
+            bgm.pause()
+//            bgm.player.removeAllItems()
         })
         bgms = []
         commandDelegate.send(CDVPluginResult(status: CDVCommandStatus_OK, messageAs: true), callbackId: command.callbackId)
@@ -1005,34 +1055,105 @@ extension CDVRecorder {
     @objc func listBgm(_ command: CDVInvokedUrlCommand)  {
         
     }
+    // ダウンロードする
+    @objc func downloadBgm(_ command: CDVInvokedUrlCommand) {
+        // ダウンロードしたものを配置するフォルダがなければ作成する
+        let baseBgmDownloadPath = NSSearchPathForDirectoriesInDomains(.documentDirectory, .userDomainMask, true).first! + "/bgms"
+        let bgmBaseDownloadURL = URL(fileURLWithPath: baseBgmDownloadPath)
+        if !FileManager.default.fileExists(atPath: bgmBaseDownloadURL.path) {
+            do {
+                try FileManager.default.createDirectory(at: bgmBaseDownloadURL, withIntermediateDirectories: true)
+            } catch {
+                
+                let result = CDVPluginResult(
+                    status: CDVCommandStatus_ERROR,
+                    messageAs: ErrorCode.folderManipulationError.toDictionary(message: "can't create bgm folder")
+                    )
+                self.commandDelegate.send(result, callbackId: command.callbackId)
+            }
+        }
+        
+        // ダウンロード開始
+        let notDownloads = bgms.filter({ return !$0.isDownload})
+        //
+        if notDownloads.count == 0 {
+            let result = CDVPluginResult(status: CDVCommandStatus_OK, messageAs: true)
+            self.commandDelegate.send(result, callbackId: command.callbackId)
+            return
+        }
+        var progresses: [Double] = []
+        for (index, item) in notDownloads.enumerated() {
+            // download URL
+            let url = item.urls[0]
+            // 保存先
+            let path = bgmBaseDownloadURL.appendingPathComponent(item.name)
+            let dest:DownloadRequest.Destination = { _, _ in
+                return (path, [.removePreviousFile, .createIntermediateDirectories])
+            }
+            progresses.append(0.0)
+            AF.download(url, to: dest).downloadProgress { p in
+                progresses[index] = p.fractionCompleted
+                let sum = progresses.reduce(0.0) {$0 + $1}
+                if self.downloadBgmProgressCallbackId != nil {
+                    let data = ["total": Double(progresses.count), "progress": sum]
+                    let result = CDVPluginResult(status: CDVCommandStatus_OK, messageAs: data)
+                    self.commandDelegate.send(result, callbackId: self.downloadBgmProgressCallbackId)
+                }
+
+                // すべてのダウンロードが完了した
+                if (Double(progresses.count) == sum) {
+                    let result = CDVPluginResult(status: CDVCommandStatus_OK, messageAs: true)
+                    self.commandDelegate.send(result, callbackId: command.callbackId)
+                }
+            }
+            .responseData { response in
+                // 一つずつのデータのダウンロードが完了した
+                item.path = path
+                item.audioFile = try! AVAudioFile(forReading: path)
+                item.isDownload = true
+                
+            }
+        }
+        
+        
+        
+    }
     // play する
     private func playBgm() {
         bgms.forEach({bgm in
-            bgm.player.play();
+            bgm.play();
         });
     }
     // pause する
     private func pauseBgm() {
         bgms.forEach({bgm in
-            bgm.player.pause();
+            bgm.pause();
         });
     }
     // シークする
-    private func seekBgm(time: CMTime) {
+    private func seekBgm(time: Double) {
         bgms.forEach({bgm in
-            bgm.player.currentItem?.seek(to: time)
+            bgm.seek(position: time)
         });
+    }
+    // BGMが再生可能か？
+    private func canPlayBgm() -> Bool {
+        return bgms.allSatisfy({
+            
+            $0.status == "canPlay"
+            
+        })
     }
     // ミュートにする
     private func muteBgm() {
         bgms.forEach({bgm in
-            bgm.player.volume = 0.5
+            bgm.mute()
         });
     }
     // ミュート解除
     private func resignMuteBgm() {
         bgms.forEach({bgm in
-            bgm.player.volume = 1.0
+            bgm.resignMute()
         });
     }
 }
@@ -1058,13 +1179,14 @@ extension CDVRecorder {
                     {
                         headphonesConnected = true
                         if (self.isRecording) {
-                            do {
-                                try self.engine?.start()
-                                resignMuteBgm()
-                                self.playBgm()
-                            }
-                            catch {
-                                return
+                            DispatchQueue.main.async {
+                                do {
+                                    try self.engine?.start()
+                                    self.playBgm()
+                                }
+                                catch {
+                                    return
+                                }
                             }
                         }
                         if (changeConnectedEarPhoneStatusCallBackId != nil) {
@@ -1088,14 +1210,14 @@ extension CDVRecorder {
                         {
                             headphonesConnected = false
                             if (self.isRecording) {
-                                do {
-                                    try self.engine?.start()
-                                    self.muteBgm()
-                                    self.playBgm()
-                                    
-                                }
-                                catch {
-                                    return
+                                DispatchQueue.main.async {
+                                    do {
+                                        try self.engine?.start()
+                                        self.playBgm()
+                                    }
+                                    catch {
+                                        return
+                                    }
                                 }
                             }
                             if (changeConnectedEarPhoneStatusCallBackId != nil) {

@@ -39,6 +39,10 @@ const recorder = {
     clear: (params) => createAction('clearBgm', params),
     play: (params) => createAction('playBgm', params),
     pause: (params) => createAction('pauseBgm', params),
+    seek: (params) => createAction('seekBgm', params),
+    resetTime: (params) => createAction('resetBgmTime', params),
+    download: (params) => createAction('downloadBgm', params),
+    onDownloadProgress: (params) => createAction('setOnDownloadBgmProgress', params)
   },
   initialize: (params) => createAction('initialize', params),
   start: (params) => createAction('start', params),
