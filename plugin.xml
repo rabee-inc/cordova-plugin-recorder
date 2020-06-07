@@ -14,15 +14,23 @@
       </feature>
       <preference name="deployment-target" value="10.0" />
     </config-file>
-    <config-file target="*-Info.plist" parent="NSMicrophoneUsageDescription">
-      <string>マイクの利用を許可しますか？</string>
-    </config-file>
     <dependency id="cordova-plugin-add-swift-support" version="2.0.2"/>
     <preference name="UseSwiftLanguageVersion" default="4" />
     
     <!-- Swift source -->
     <source-file src="src/ios/CDVRecorder.swift" />
+    <source-file src="src/ios/CDVRecorderBgm.swift" />
     <source-file src="src/ios/CDVRecorder-Bridging-Header.h" />
+
+    <!-- Pod -->
+    <podspec>
+      <config>
+        <source url="https://github.com/CocoaPods/Specs.git"/>
+      </config>
+      <pods use-frameworks="true">
+        <pod name="Alamofire" spec="~> 5.2" />
+      </pods>
+    </podspec>
   </platform>
   <!-- Android -->
   <platform name="android">
