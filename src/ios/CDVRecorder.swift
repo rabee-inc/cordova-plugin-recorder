@@ -660,8 +660,8 @@ import Alamofire
         guard let callbackId = command.callbackId else {return}
         changeConnectedEarPhoneStatusCallBackId = callbackId
         
-//        let result = CDVPluginResult(status: CDVCommandStatus_OK, messageAs: ["isConnected": self.isConnectedHeadphones()])
-        let result = CDVPluginResult(status: CDVCommandStatus_OK, messageAs: ["isConnected": true])
+        let result = CDVPluginResult(status: CDVCommandStatus_OK, messageAs: ["isConnected": self.isConnectedHeadphones()])
+//        let result = CDVPluginResult(status: CDVCommandStatus_OK, messageAs: ["isConnected": true])
         result?.keepCallback = true
         self.commandDelegate.send(result, callbackId: command.callbackId)
     }
@@ -701,16 +701,6 @@ import Alamofire
     
     // start private func
     private func startRecord(path: URL) {
-        // ヘッドフォンがつけられていたらミュート解除
-//        if (self.isConnectedHeadphones()) {
-//            self.resignMuteBgm()
-//        }
-//        // ヘッドフォンが抜かれていたらミュート
-//        else {
-//            self.muteBgm()
-//        }
-        
-        
         do {
             // audio file name
             let timestamp = String(Int(NSDate().timeIntervalSince1970));

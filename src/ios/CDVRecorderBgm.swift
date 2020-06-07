@@ -166,7 +166,7 @@ extension CDVRecorderBgm {
                         portType == AVAudioSessionPortBluetoothLE ||
                         portType == AVAudioSessionPortBluetoothHFP
                     {
-                       self.resignMute()
+                        self.resignMute()
                         print("headphone plugged in")
                     }
                     break
@@ -181,7 +181,7 @@ extension CDVRecorderBgm {
                             portType == AVAudioSessionPortBluetoothLE ||
                             portType == AVAudioSessionPortBluetoothHFP
                         {
-                           self.mute()
+                            self.mute()
                             print("headphone pulled out")
                         }
 
