@@ -163,7 +163,8 @@ import Alamofire
         isRecording = true
         
         // 問題なければ result
-        let result = CDVPluginResult(status: CDVCommandStatus_OK, messageAs: true)
+        let resultData = ["sampleRate": getInputFormat()?.sampleRate]
+        let result = CDVPluginResult(status: CDVCommandStatus_OK, messageAs: resultData as [AnyHashable : Any])
         self.commandDelegate.send(result, callbackId:command.callbackId)
     }
     
@@ -225,7 +226,9 @@ import Alamofire
         self.startRecord(path: path)
         isRecording = true
         
-        let result = CDVPluginResult(status: CDVCommandStatus_OK, messageAs:"pause success")
+        // sample rate 取得
+        let resultData = ["sampleRate": getInputFormat()?.sampleRate]
+        let result = CDVPluginResult(status: CDVCommandStatus_OK, messageAs: resultData as [AnyHashable : Any])
         self.commandDelegate.send(result, callbackId: command.callbackId)
     }
     
@@ -671,6 +674,12 @@ import Alamofire
         downloadBgmProgressCallbackId = callbackId
     }
     
+    @objc func getSampleRate(_ command: CDVInvokedUrlCommand) {
+        let resultData = ["sampleRate": getInputFormat()?.sampleRate]
+        let result = CDVPluginResult(status: CDVCommandStatus_OK, messageAs: resultData as [AnyHashable : Any])
+        commandDelegate.send(result, callbackId: command.callbackId)
+    }
+    
     private func removeFolder(id: String) -> Error? {
         let folderUrl = URL(fileURLWithPath: recordingDir + "/\(id)")
         if FileManager.default.fileExists(atPath: folderUrl.path) {
@@ -965,6 +974,7 @@ import Alamofire
     
 }
 
+// for BGM
 extension CDVRecorder {
     // BGM だけ再生する
     @objc func playBgm(_ command: CDVInvokedUrlCommand)  {

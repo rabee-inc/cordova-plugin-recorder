@@ -59,6 +59,7 @@ const recorder = {
   exportWithCompression: (params) => createAction('exportWithCompression', params),
   split: (params) => createAction('split', params),
   getAudio: (params) => createAction('getAudio', params),
+  getSampleRate: (params) => createAction('getSampleRate', params),
   // イベントリスナー系
   onPushBuffer: (callback, onFail, param) => {
     return exec(callback, onFail, "Recorder", "onPushBuffer", [param]);

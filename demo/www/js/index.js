@@ -25,13 +25,15 @@ function onDeviceReady() {
     const button1 = document.querySelector('.button1') 
     const button2 = document.querySelector('.button2') 
     const button3 = document.querySelector('.button3') 
-    
+    const sampleRateButton = document.querySelector('.button4')
+
     button1.addEventListener('click', play);
     button2.addEventListener('click', pause);
     button3.addEventListener('click', resume);
+    sampleRateButton.addEventListener('click', getSampleRate);
 
-    Recorder.initialize().then(() => {
-        Recorder.onChangeEarPhoneConnectedStatus((res) => {
+    recorder.initialize().then(() => {
+        recorder.onChangeEarPhoneConnectedStatus((res) => {
             const message = res.isConnected ? 'イヤフォンが接続されました' : 'イヤフォンが外されました'
             window.alert(message)
         }, () => {}, {})
@@ -65,7 +67,10 @@ async function play() {
     // ダウンロードスタート
     await recorder.bgm.download().then(() => {
         window.alert('ダウンロードが完了しました。再生を開始します');
-        recorder.start();
+        recorder.start().then(({sampleRate}) => {
+            // ここでサンプルレート返すようにする
+            window.alert(sampleRate)
+        });
     }); 
 }
 
@@ -77,4 +82,10 @@ function pause() {
 function resume() {
     const recorder = window.recorder;
     recorder.resume();
+}
+
+async function getSampleRate() {
+    const recorder = window.recorder;
+    const {sampleRate} = await recorder.getSampleRate(); 
+    window.alert(sampleRate);
 }
