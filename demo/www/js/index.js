@@ -22,15 +22,23 @@
 document.addEventListener('deviceready', onDeviceReady, false);
 function onDeviceReady() {   
     // button
+    const button0 = document.querySelector('.button0') 
     const button1 = document.querySelector('.button1') 
     const button2 = document.querySelector('.button2') 
     const button3 = document.querySelector('.button3') 
     const sampleRateButton = document.querySelector('.button4')
+    const seekButton = document.querySelector('.button5')
+    const seekMoreButton = document.querySelector('.button6')
 
+    button0.addEventListener('click', download);
     button1.addEventListener('click', play);
     button2.addEventListener('click', pause);
     button3.addEventListener('click', resume);
     sampleRateButton.addEventListener('click', getSampleRate);
+    seekButton.addEventListener('click', seekTo);
+    seekMoreButton.addEventListener('click', seekToMore);
+
+
 
     recorder.initialize().then(() => {
         recorder.onChangeEarPhoneConnectedStatus((res) => {
@@ -40,7 +48,7 @@ function onDeviceReady() {
     });
 }
 
-async function play() {
+async function download() {
     const recorder = window.recorder;
     const promises = [];
     // bgm 1つ目
@@ -66,12 +74,17 @@ async function play() {
     });
     // ダウンロードスタート
     await recorder.bgm.download().then(() => {
-        window.alert('ダウンロードが完了しました。再生を開始します');
-        recorder.start().then(({sampleRate}) => {
-            // ここでサンプルレート返すようにする
-            window.alert(sampleRate)
-        });
-    }); 
+        window.alert('ダウンロードが完了しました');
+    });
+};
+
+async function play() {
+    const recorder = window.recorder;
+    window.alert('再生を開始します');
+    recorder.start().then(({sampleRate}) => {
+        // ここでサンプルレート返すようにする
+        window.alert(sampleRate)
+    });
 }
 
 function pause() {
@@ -88,4 +101,14 @@ async function getSampleRate() {
     const recorder = window.recorder;
     const {sampleRate} = await recorder.getSampleRate(); 
     window.alert(sampleRate);
+}
+
+async function seekTo() {
+    const recorder = window.recorder;
+    recorder.bgm.seek(10.2);
+}
+
+async function seekToMore() {
+    const recorder = window.recorder;
+    recorder.bgm.seek(100);
 }

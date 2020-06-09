@@ -8,6 +8,8 @@ import android.media.AudioFormat;
 import android.media.AudioRecord;
 import android.media.MediaCodec;
 import android.media.MediaRecorder;
+import android.os.Build;
+import android.util.Log;
 
 import com.otaliastudios.transcoder.Transcoder;
 import com.otaliastudios.transcoder.TranscoderListener;
@@ -16,16 +18,15 @@ import com.otaliastudios.transcoder.sink.DataSink;
 import com.otaliastudios.transcoder.sink.DefaultDataSink;
 import com.otaliastudios.transcoder.strategy.DefaultAudioStrategy;
 
-import org.apache.cordova.CallbackContext;
-import org.apache.cordova.CordovaInterface;
-import org.apache.cordova.CordovaPlugin;
-import org.apache.cordova.CordovaWebView;
-import org.apache.cordova.LOG;
-import org.apache.cordova.PluginResult;
+import org.apache.cordova.*;
+
+
 import org.jdeferred2.Deferred;
 import org.jdeferred2.DoneCallback;
 import org.jdeferred2.Promise;
 import org.jdeferred2.impl.DeferredObject;
+import org.jetbrains.annotations.NotNull;
+import org.jetbrains.annotations.Nullable;
 import org.json.JSONArray;
 import org.json.JSONException;
 import org.json.JSONObject;
@@ -40,12 +41,17 @@ import java.math.BigDecimal;
 import java.math.RoundingMode;
 import java.text.SimpleDateFormat;
 import java.util.ArrayList;
+import java.util.Collection;
+import java.util.HashMap;
 import java.util.List;
 import java.util.TimeZone;
 import java.util.UUID;
 
 import androidx.annotation.NonNull;
+import androidx.annotation.RequiresApi;
 import androidx.core.app.ActivityCompat;
+
+
 import nl.bravobit.ffmpeg.ExecuteBinaryResponseHandler;
 import nl.bravobit.ffmpeg.FFmpeg;
 import omrecorder.AudioChunk;
@@ -54,6 +60,13 @@ import omrecorder.OmRecorder;
 import omrecorder.PullTransport;
 import omrecorder.PullableSource;
 import omrecorder.Recorder;
+
+import com.tonyodev.fetch2.*;
+import com.tonyodev.fetch2.Error;
+import com.tonyodev.fetch2core.DownloadBlock;
+import com.tonyodev.fetch2.Request;
+
+
 
 public class CDVRecorder extends CordovaPlugin {
 
@@ -86,7 +99,13 @@ public class CDVRecorder extends CordovaPlugin {
     private String currentAudioId;
 
     private Boolean isRecording = false;
+    private List<CDVRecorderBgm> bgms = new ArrayList<>();
 
+    // ダウンロード周り
+    private Fetch fetch;
+    private AbstractFetchGroupListener groupFetchListener;
+    private AbstractFetchListener fetchListener;
+    private CallbackContext downloadProgressCallbackId;
 
     public void initialize(CordovaInterface cordova, CordovaWebView webView) {
 
@@ -185,7 +204,21 @@ public class CDVRecorder extends CordovaPlugin {
             // TODO: 設定を書く
             callbackContext.success("ok");
             return true;
-        } else {
+        } else if (action.equals("setBgm")) {
+            JSONObject obj = args.getJSONObject(0);
+            return setBgm(activity, callbackContext, obj);
+        } else if (action.equals(("downloadBgm"))) {
+            return downloadBgm();
+        } else if (action.equals("seekBgm")) {
+            Double sec = args.getDouble(0);
+            return seekBgm(activity, callbackContext, sec);
+        } else if (action.equals(("clearBgm"))) {
+            return clearBgm(activity, callbackContext);
+        } else if (action.equals(("getSampleRate"))) {
+            return getSampleRate(activity, callbackContext);
+        } else if (action.equals(("setOnDownloadBgmProgress"))) {
+            return setOnDownloadBgmProgress(activity, callbackContext);
+        } else  {
             return false;
         }
 
@@ -202,11 +235,14 @@ public class CDVRecorder extends CordovaPlugin {
         // 処理
         currentAudioId = null;
         sequences = new ArrayList<File>();
+        playBgm();
         start(currentAudioId, callbackContext);
+
     }
 
     public void pauseRecording(final Activity activity, final CallbackContext callbackContext) {
         try {
+            pauseBgm();
             recorder.stopRecording();
             isRecording = false;
             callbackContext.success("ok");
@@ -220,6 +256,7 @@ public class CDVRecorder extends CordovaPlugin {
         if (currentAudioId == null) {
             callbackContext.error("not initialize audio");
         } else {
+            playBgm();
             start(currentAudioId, callbackContext);
             callbackContext.success("ok");
         }
@@ -229,6 +266,7 @@ public class CDVRecorder extends CordovaPlugin {
     public void stopRecording(final Activity activity, final CallbackContext callbackContext) {
         try {
             recorder.stopRecording();
+            pauseBgm();
             // 処理
             isRecording = false;
             currentAudioId = null;
@@ -281,12 +319,13 @@ public class CDVRecorder extends CordovaPlugin {
             File outputFile = File.createTempFile("compressed", ".aac", outputDir);
             DataSink sink = new DefaultDataSink(outputFile.getAbsolutePath());
 
-            DefaultAudioStrategy strategy = DefaultAudioStrategy.builder().channels(1).sampleRate(44100).build();
+            DefaultAudioStrategy strategy = DefaultAudioStrategy.builder().channels(1).sampleRate(SAMPLE_RATE).build();
 
             Transcoder.into(sink).addDataSource(TrackType.AUDIO, inputFile.getPath()).setAudioTrackStrategy(strategy).setListener(new TranscoderListener() {
                 @Override
                 public void onTranscodeProgress(double progress) {
                     if (compressProgressCallbackContext != null) {
+
                         PluginResult result = new PluginResult(PluginResult.Status.OK, (BigDecimal.valueOf(progress).setScale(3, RoundingMode.CEILING.HALF_UP).toPlainString()));
                         result.setKeepCallback(true);
                         compressProgressCallbackContext.sendPluginResult(result);
@@ -343,8 +382,6 @@ public class CDVRecorder extends CordovaPlugin {
         } catch (Exception e) {
 
         }
-
-
     }
 
     // 録音したファイルをマージする
@@ -692,10 +729,12 @@ public class CDVRecorder extends CordovaPlugin {
                 new PullableSource.Default(
                         new AudioRecordConfig.Default(
                                 MediaRecorder.AudioSource.MIC, AudioFormat.ENCODING_PCM_16BIT,
-                                AudioFormat.CHANNEL_IN_MONO, 44100
+                                AudioFormat.CHANNEL_IN_MONO, SAMPLE_RATE
                         ), 4096 * 4
                 );
     }
+
+
 
     // 音源の録音開始
     private void start(String audioId, final CallbackContext callbackContext) {
@@ -740,10 +779,12 @@ public class CDVRecorder extends CordovaPlugin {
                             }
                         }
                     }), audio);
-
-
                     recorder.startRecording();
-                    callbackContext.success("ok");
+                    // sample rate を送る
+                    JSONObject resultData = new JSONObject();
+                    resultData.put("sampleRate", SAMPLE_RATE);
+                    PluginResult pluginResult = new PluginResult(PluginResult.Status.OK, resultData);
+                    callbackContext.sendPluginResult(pluginResult);
 
                 } catch (Exception e) {
                     callbackContext.error(e.getLocalizedMessage());
@@ -751,6 +792,204 @@ public class CDVRecorder extends CordovaPlugin {
 
             }
         });
+    }
+
+    private Boolean setBgm(final Activity activity, final CallbackContext callbackContext, JSONObject bgmObj) throws JSONException {
+        String url = bgmObj.getString("url");
+        String name = bgmObj.getString("name");
+        if (url == null || name == null) {
+            return false;
+        }
+        CDVRecorderBgm bgm = new CDVRecorderBgm(activity.getApplicationContext(), name, url, true);
+        this.bgms.add(bgm);
+        PluginResult r = new PluginResult(PluginResult.Status.OK, true);
+        callbackContext.sendPluginResult(r);
+        return true;
+    }
+
+    // BGM のプレイ
+    private void playBgm() {
+        for (CDVRecorderBgm bgm: bgms) {
+            bgm.play();
+        }
+    }
+    // ポーズの対応
+    private void pauseBgm() {
+        for (CDVRecorderBgm bgm: bgms) {
+            bgm.pause();
+        }
+    }
+    // シークBGM
+    private Boolean seekBgm(final Activity activity, final CallbackContext callbackContext, Double secounds) {
+        for(CDVRecorderBgm bgm: this.bgms) {
+            bgm.seek(secounds);
+        }
+        return true;
+    }
+
+    private Boolean clearBgm(final Activity activity, final CallbackContext callbackContext) {
+        // 一応リリースを呼ぶ
+        for (CDVRecorderBgm bgm: bgms) {
+            bgm.release();
+        }
+        // その上でお掃除
+        bgms.removeAll(new ArrayList<>());
+
+        PluginResult r = new PluginResult(PluginResult.Status.OK, true);
+        callbackContext.sendPluginResult(r);
+        return true;
+    }
+
+    private Double sumList(Collection<Double> list) {
+        Double result = 0.0;
+        for (Double item: list) {
+            result += item;
+        }
+        return result;
+    }
+
+    // ダウンロードBGM
+    private Boolean downloadBgm() throws JSONException {
+        final Activity activity = this.cordova.getActivity();
+        final Context context = activity.getApplicationContext();
+
+        // すでに fetch オブジェクトがある場合は、削除しておく
+        if (fetch != null && !fetch.isClosed()) {
+            if (groupFetchListener != null) {
+                fetch.removeListener(groupFetchListener);
+            }
+            if (fetchListener != null) {
+                fetch.removeListener(fetchListener);
+            }
+            fetch.removeAll();
+            fetch.deleteAll();
+            fetch.close();
+            fetch = null;
+        }
+
+        // fetch object の生成
+        FetchConfiguration fetchConfiguration = new FetchConfiguration.Builder(context).setDownloadConcurrentLimit(10).build();
+        this.fetch = Fetch.Impl.getInstance(fetchConfiguration);
+
+        // セットされている BGM はダウンロードしてくる
+        // ダウンロードリストを生成する
+        final List<Request> requests = new ArrayList<>();
+        HashMap<Integer, Double> progressList = new HashMap<Integer, Double>();
+
+        for (CDVRecorderBgm bgm: this.bgms) {
+            try {
+                String url = bgm.url;
+                String name = bgm.name;
+                File file = File.createTempFile(name, null, context.getCacheDir());
+                final Request request = new Request(url, file.getPath());
+                request.setPriority(Priority.HIGH);
+                request.setNetworkType(NetworkType.ALL);
+                requests.add(request);
+                bgm.id = request.getId();
+                progressList.put(bgm.id, 0.0);
+
+            } catch (IOException e) {
+                e.printStackTrace();
+            }
+        }
+
+        fetchListener = new AbstractFetchListener() {
+            @Override
+            public void onProgress(@NotNull Download download, long etaInMilliSeconds, long downloadedBytesPerSecond) {
+                super.onProgress(download, etaInMilliSeconds, downloadedBytesPerSecond);
+                Integer progerss =  download.getProgress();
+            }
+        };
+
+        JSONObject progressResult = new JSONObject();
+        progressResult.put("total", (double) bgms.size());
+        progressResult.put("progress", 0);
+
+        // グループのダウンロード完了時
+        groupFetchListener = new AbstractFetchGroupListener() {
+            @Override
+            public void onProgress(@NotNull Download download, long etaInMilliSeconds, long downloadedBytesPerSecond) {
+                super.onProgress(download, etaInMilliSeconds, downloadedBytesPerSecond);
+                Double progerss =  ((double) download.getProgress()) / 100;
+                Log.d(TAG, "" + progerss);
+                Integer id = download.getId();
+                progressList.put(id, progerss);
+                Double total = sumList(progressList.values());
+                try {
+                    progressResult.put("total", total);
+                    PluginResult r = new PluginResult(PluginResult.Status.OK, progressResult);
+                    if (downloadProgressCallbackId != null) {
+                        downloadProgressCallbackId.sendPluginResult(r);
+                    }
+                } catch (JSONException e) {
+                    e.printStackTrace();
+                }
+
+            }
+            @Override
+            public void onCompleted(int groupId, @NotNull Download download, @NotNull FetchGroup fetchGroup) {
+                super.onCompleted(groupId, download, fetchGroup);
+                Integer id = download.getId();
+                for(CDVRecorderBgm bgm: bgms) {
+                    if (bgm.id.equals(id)) {
+                        try {
+                            bgm.setSrc(download.getFileUri());
+                        } catch (IOException e) {
+                            e.printStackTrace();
+                        }
+                    }
+                }
+
+                // 全部のダウンロードが完了した
+                if (fetchGroup.getCompletedDownloads().size() >= bgms.size()) {
+                    fetch.deleteAll();
+                    fetch.removeAll();
+                    if (!fetch.isClosed()) {
+                        fetch.close();
+                    }
+
+                    PluginResult r = new PluginResult(PluginResult.Status.OK, true);
+                    callbackContext.sendPluginResult(r);
+
+                }
+            }
+        };
+
+        // リスナーの登録
+        fetch.addListener(this.groupFetchListener);
+        fetch.addListener(this.fetchListener);
+
+        // キューにリクエストを追加する
+        this.fetch.enqueue(requests, null);
+
+        return true;
+    }
+
+    private Boolean setOnDownloadBgmProgress(final Activity activity, final CallbackContext callbackContext) {
+        downloadProgressCallbackId = callbackContext;
+        PluginResult r = new PluginResult(PluginResult.Status.OK, true);
+        callbackContext.sendPluginResult(r);
+        return true;
+    }
+
+    private boolean getSampleRate(Activity activity, CallbackContext callbackContext) throws JSONException {
+        JSONObject resultData = new JSONObject();
+        resultData.put("sampleRate", SAMPLE_RATE);
+        PluginResult r = new PluginResult(PluginResult.Status.OK, resultData);
+        callbackContext.sendPluginResult(r);
+        return true;
+    }
+
+    private void muteBgm() {
+        for (CDVRecorderBgm bgm: bgms) {
+            bgm.mute();
+        }
+    }
+
+    private void resignMute() {
+        for (CDVRecorderBgm bgm: bgms) {
+            bgm.resignMute();
+        }
     }
 
 }

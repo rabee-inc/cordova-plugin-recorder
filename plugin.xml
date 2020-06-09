@@ -46,6 +46,7 @@
     </config-file>
     
     <source-file src="src/android/CDVRecorder.java" target-dir="src/jp/rabee/recorder" />
+    <source-file src="src/android/CDVRecorderBgm.java" target-dir="src/jp/rabee/recorder" />
     <source-file src="src/android/WavFile.java" target-dir="src/jp/rabee/recorder" />
     <source-file src="src/android/WavFileException.java" target-dir="src/jp/rabee/recorder" />
 
