@@ -15,6 +15,7 @@ import android.media.MediaCodec;
 import android.media.MediaRecorder;
 import android.os.Build;
 import android.util.Log;
+import android.view.animation.AccelerateInterpolator;
 
 import com.otaliastudios.transcoder.Transcoder;
 import com.otaliastudios.transcoder.TranscoderListener;
@@ -114,14 +115,13 @@ public class CDVRecorder extends CordovaPlugin {
 
     // BT 周り
     private  BroadcastReceiver btReciver;
-    private static final String ACTION_DETECT = "detect";
-    private static final String ACTION_EVENT = "registerRemoteEvents";
-    private static final String ACTION_APP_INIT = "cordovaReady";
     private static final int DEFAULT_STATE = -1;
     private static final int DISCONNECTED = 0;
     private static final int CONNECTED = 1;
     private static final int BT_DISCONNECTED = 2;
     private static final int BT_CONNECTED = 3;
+    private CallbackContext changeEarPhoneConnectedStatusCallbackContext;
+
 
 
     public void initialize(CordovaInterface cordova, CordovaWebView webView) {
@@ -154,6 +154,21 @@ public class CDVRecorder extends CordovaPlugin {
                 else {
                     Log.d(TAG, "Headset state is unknown: " + status);
                 }
+
+                try {
+
+                    if (changeEarPhoneConnectedStatusCallbackContext != null) {
+                        JSONObject resultData = new JSONObject();
+                        resultData.put("isConnected", isHeadsetEnabled());
+                        PluginResult pluginResult = new PluginResult(PluginResult.Status.OK, resultData);
+                        pluginResult.setKeepCallback(true);
+                        changeEarPhoneConnectedStatusCallbackContext.sendPluginResult(pluginResult);
+                    }
+
+                } catch (JSONException e) {
+                    e.printStackTrace();
+                }
+
             }
         };
 
@@ -265,6 +280,11 @@ public class CDVRecorder extends CordovaPlugin {
             return getSampleRate(activity, callbackContext);
         } else if (action.equals(("setOnDownloadBgmProgress"))) {
             return setOnDownloadBgmProgress(activity, callbackContext);
+        } else if (action.equals(("setOnChangeEarPhoneConnectedStatus"))) {
+            return setOnChangeEarPhoneConnectedStatus(activity, callbackContext);
+        } else if (action.equals(("initialize"))) {
+            callbackContext.success("ok");
+            return true;
         } else  {
             return false;
         }
@@ -982,9 +1002,9 @@ public class CDVRecorder extends CordovaPlugin {
                 progressList.put(id, progerss);
                 Double total = sumList(progressList.values());
                 try {
-                    progressResult.put("total", total);
-                    PluginResult r = new PluginResult(PluginResult.Status.OK, progressResult);
+                    progressResult.put("progress", total);
                     if (downloadProgressCallbackId != null) {
+                        PluginResult r = new PluginResult(PluginResult.Status.OK, progressResult);
                         downloadProgressCallbackId.sendPluginResult(r);
                     }
                 } catch (JSONException e) {
@@ -1118,5 +1138,16 @@ public class CDVRecorder extends CordovaPlugin {
         }
         return false;
     }
+
+    private Boolean setOnChangeEarPhoneConnectedStatus(Activity activity, CallbackContext callbackContext) throws JSONException {
+        changeEarPhoneConnectedStatusCallbackContext = callbackContext;
+        JSONObject resultData = new JSONObject();
+        resultData.put("isConnected", isHeadsetEnabled());
+        PluginResult r = new PluginResult(PluginResult.Status.OK, resultData);
+        r.setKeepCallback(true);
+        callbackContext.sendPluginResult(r);
+        return true;
+    }
+
 
 }

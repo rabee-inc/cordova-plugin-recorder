@@ -37,9 +37,6 @@ function onDeviceReady() {
     sampleRateButton.addEventListener('click', getSampleRate);
     seekButton.addEventListener('click', seekTo);
     seekMoreButton.addEventListener('click', seekToMore);
-
-
-
     recorder.initialize().then(() => {
         recorder.onChangeEarPhoneConnectedStatus((res) => {
             const message = res.isConnected ? 'イヤフォンが接続されました' : 'イヤフォンが外されました'
