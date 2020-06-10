@@ -910,6 +910,8 @@ public class CDVRecorder extends CordovaPlugin {
         for(CDVRecorderBgm bgm: this.bgms) {
             bgm.seek(secounds);
         }
+        PluginResult r = new PluginResult(PluginResult.Status.OK, true);
+        callbackContext.sendPluginResult(r);
         return true;
     }
 
