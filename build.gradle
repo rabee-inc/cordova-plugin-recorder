@@ -3,4 +3,5 @@ dependencies {
     implementation 'com.kailashdabhi:om-recorder:1.1.5'
     implementation 'org.jdeferred.v2:jdeferred-core:2.0.0'
     implementation 'com.otaliastudios:transcoder:0.8.0'
+    implementation "androidx.tonyodev.fetch2:xfetch2:3.1.4"
 }

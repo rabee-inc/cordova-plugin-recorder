@@ -1,6 +1,6 @@
 {
-    "name": "jp.rabee.recorder.test",
-    "displayName": "",
+    "name": "jp.rabee.testadvancedownloader",
+    "displayName": "TAD",
     "version": "0.0.1",
     "description": "A sample Apache Cordova application that responds to the deviceready event.",
     "main": "index.js",
