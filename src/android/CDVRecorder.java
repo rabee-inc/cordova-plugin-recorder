@@ -902,7 +902,6 @@ public class CDVRecorder extends CordovaPlugin {
     private void pauseBgm() {
         for (CDVRecorderBgm bgm: bgms) {
             bgm.pause();
-
         }
     }
     // シークBGM
@@ -921,7 +920,7 @@ public class CDVRecorder extends CordovaPlugin {
             bgm.release();
         }
         // その上でお掃除
-        bgms.removeAll(new ArrayList<>());
+        bgms.clear();
 
         PluginResult r = new PluginResult(PluginResult.Status.OK, true);
         callbackContext.sendPluginResult(r);
@@ -965,6 +964,9 @@ public class CDVRecorder extends CordovaPlugin {
         HashMap<Integer, Double> progressList = new HashMap<Integer, Double>();
 
         for (CDVRecorderBgm bgm: this.bgms) {
+            if (bgm.hasSource) {
+                break;
+            }
             try {
                 String url = bgm.url;
                 String name = bgm.name;
@@ -980,6 +982,8 @@ public class CDVRecorder extends CordovaPlugin {
                 e.printStackTrace();
             }
         }
+
+
 
         fetchListener = new AbstractFetchListener() {
             @Override
@@ -1049,7 +1053,15 @@ public class CDVRecorder extends CordovaPlugin {
 
         // キューにリクエストを追加する
         this.fetch.enqueue(requests, null);
-
+        if (bgms.size() == 0 || requests.size() == 0) {
+            fetch.deleteAll();
+            fetch.removeAll();
+            if (!fetch.isClosed()) {
+                fetch.close();
+            }
+            PluginResult r = new PluginResult(PluginResult.Status.OK, true);
+            callbackContext.sendPluginResult(r);
+        }
         return true;
     }
 

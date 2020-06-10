@@ -31,7 +31,7 @@ public class CDVRecorderBgm  implements MediaPlayer.OnErrorListener, MediaPlayer
     public Float volume;
     private Context context;
     private Integer offset = 0;
-    private Boolean hasSource = false;
+    public Boolean hasSource = false;
 
 
     public CDVRecorderBgm(Context context, String name, String url, Double volume ,Boolean loop) {
