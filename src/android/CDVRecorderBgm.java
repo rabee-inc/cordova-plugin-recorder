@@ -28,21 +28,20 @@ public class CDVRecorderBgm  implements MediaPlayer.OnErrorListener, MediaPlayer
     public String name;
     public Boolean loop = false;
     public Integer id;
-    public Float volume = 1.0;
+    public Float volume;
     private Context context;
     private Integer offset = 0;
     private Boolean hasSource = false;
 
 
-    public CDVRecorderBgm(Context context, String name, String url, Float volume ,Boolean loop) {
+    public CDVRecorderBgm(Context context, String name, String url, Double volume ,Boolean loop) {
         this.name = name;
         this.url = url;
         this.context = context;
         this.player = new MediaPlayer();
-        this.volume = volume;
-        this.player.setVolume(volume, volume);
+        this.volume = volume.floatValue();
+        this.player.setVolume(this.volume, this.volume);
         this.loop = loop;
-
         player.setLooping(loop);
     }
 
@@ -58,8 +57,8 @@ public class CDVRecorderBgm  implements MediaPlayer.OnErrorListener, MediaPlayer
         }
         // 用意されているか、一時停止中の場合にはすぐにスタートさせて、シークさせる
         else if (status.equals(PlayerStates.PAUSED) || status.equals(PlayerStates.READY)) {
+            seek(offset.doubleValue()/1000);
             player.start();
-            player.seekTo(offset);
             status = PlayerStates.PLAYING;
         }
 
@@ -68,12 +67,11 @@ public class CDVRecorderBgm  implements MediaPlayer.OnErrorListener, MediaPlayer
     public void pause() {
         status = PlayerStates.PAUSED;
         player.pause();
-        offset = player.getDuration();
+        offset = player.getCurrentPosition();
     }
 
     public void resume() {
-        player.start();
-        status = PlayerStates.PLAYING;
+        this.play();
     }
 
     public void stop() {
@@ -83,14 +81,24 @@ public class CDVRecorderBgm  implements MediaPlayer.OnErrorListener, MediaPlayer
     }
 
     public void seek(Double seconds) {
-        offset = (int) (seconds * 1000);
+        Integer msec = (int) (seconds * 1000);
         // 始まっていないなら offset をアップデートするだけ
         if (status == PlayerStates.NOT_READY) {
+            offset = msec;
             return ;
         }
+
+        Integer duration = player.getDuration();
+
+        if (loop && duration < msec) {
+            offset = msec%duration;
+        }
+        else {
+            offset = msec;
+        }
+
         // シークする
         player.seekTo(offset);
-
         if (status == PlayerStates.PLAYING) {
             player.start();
         }
@@ -126,8 +134,6 @@ public class CDVRecorderBgm  implements MediaPlayer.OnErrorListener, MediaPlayer
     // override
     @Override
     public void onPrepared(MediaPlayer play) {
-        player.start();
-        player.seekTo(offset);
         status = PlayerStates.READY;
         this.play();
     }

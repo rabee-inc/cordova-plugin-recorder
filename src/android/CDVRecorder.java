@@ -2,9 +2,14 @@ package jp.rabee.recorder;
 
 import android.Manifest;
 import android.app.Activity;
+import android.bluetooth.BluetoothHeadset;
+import android.content.BroadcastReceiver;
 import android.content.Context;
 import android.content.Intent;
+import android.content.IntentFilter;
+import android.media.AudioDeviceInfo;
 import android.media.AudioFormat;
+import android.media.AudioManager;
 import android.media.AudioRecord;
 import android.media.MediaCodec;
 import android.media.MediaRecorder;
@@ -107,10 +112,52 @@ public class CDVRecorder extends CordovaPlugin {
     private AbstractFetchListener fetchListener;
     private CallbackContext downloadProgressCallbackId;
 
-    public void initialize(CordovaInterface cordova, CordovaWebView webView) {
+    // BT 周り
+    private  BroadcastReceiver btReciver;
+    private static final String ACTION_DETECT = "detect";
+    private static final String ACTION_EVENT = "registerRemoteEvents";
+    private static final String ACTION_APP_INIT = "cordovaReady";
+    private static final int DEFAULT_STATE = -1;
+    private static final int DISCONNECTED = 0;
+    private static final int CONNECTED = 1;
+    private static final int BT_DISCONNECTED = 2;
+    private static final int BT_CONNECTED = 3;
 
+
+    public void initialize(CordovaInterface cordova, CordovaWebView webView) {
+        // voice permission
         ActivityCompat.requestPermissions(cordova.getActivity(), new String[]{Manifest.permission.RECORD_AUDIO}, VOICE_PERMISSION_REQUEST_CODE);
 
+        // for setup bt detection
+        IntentFilter intentFilter = new IntentFilter();
+        intentFilter.addAction(Intent.ACTION_HEADSET_PLUG);
+        intentFilter.addAction(BluetoothHeadset.ACTION_CONNECTION_STATE_CHANGED);
+        btReciver = new BroadcastReceiver() {
+            @Override
+            public void onReceive(Context context, Intent intent) {
+                int status = getConnectionStatus(intent.getAction(), intent);
+                if (status == CONNECTED) {
+                    resignMute();
+                    Log.d(TAG, "Headset is connected");
+                } else if (status == DISCONNECTED) {
+                    muteBgm();
+                    Log.d(TAG, "Headset is disconnected");
+                }
+                else if (status == BT_CONNECTED) {
+                    resignMute();
+                    Log.d(TAG, "BT Headset is connected");
+                }
+                else if (status == BT_DISCONNECTED) {
+                    muteBgm();
+                    Log.d(TAG, "BT Headset is disconnected");
+                }
+                else {
+                    Log.d(TAG, "Headset state is unknown: " + status);
+                }
+            }
+        };
+
+        webView.getContext().registerReceiver(this.btReciver, intentFilter);
 
         // root フォルダーのチェック
         RECORDING_ROOT_DIR = cordova.getContext().getFilesDir() + "/recording";
@@ -625,7 +672,6 @@ public class CDVRecorder extends CordovaPlugin {
                 @Override
                 public void onFinish() {
 
-
                     // temp-merged -> merged
                     if (mergedFile.exists()) {
                         mergedFile.delete();
@@ -797,10 +843,22 @@ public class CDVRecorder extends CordovaPlugin {
     private Boolean setBgm(final Activity activity, final CallbackContext callbackContext, JSONObject bgmObj) throws JSONException {
         String url = bgmObj.getString("url");
         String name = bgmObj.getString("name");
+        Double volume = bgmObj.getDouble("volume");
+        Boolean loop =  bgmObj.getBoolean("loop");
+
         if (url == null || name == null) {
             return false;
         }
-        CDVRecorderBgm bgm = new CDVRecorderBgm(activity.getApplicationContext(), name, url, true);
+
+        if (volume == null) {
+            volume = 1.0;
+        }
+
+        if (loop == null) {
+            loop = false;
+        }
+
+        CDVRecorderBgm bgm = new CDVRecorderBgm(activity.getApplicationContext(), name, url,  volume, loop);
         this.bgms.add(bgm);
         PluginResult r = new PluginResult(PluginResult.Status.OK, true);
         callbackContext.sendPluginResult(r);
@@ -809,7 +867,14 @@ public class CDVRecorder extends CordovaPlugin {
 
     // BGM のプレイ
     private void playBgm() {
+        boolean enableHeadSet = isHeadsetEnabled();
         for (CDVRecorderBgm bgm: bgms) {
+            if (!enableHeadSet) {
+                bgm.mute();
+            }
+            else {
+                bgm.resignMute();
+            }
             bgm.play();
         }
     }
@@ -817,6 +882,7 @@ public class CDVRecorder extends CordovaPlugin {
     private void pauseBgm() {
         for (CDVRecorderBgm bgm: bgms) {
             bgm.pause();
+
         }
     }
     // シークBGM
@@ -990,6 +1056,67 @@ public class CDVRecorder extends CordovaPlugin {
         for (CDVRecorderBgm bgm: bgms) {
             bgm.resignMute();
         }
+    }
+    private int getConnectionStatus(String action, Intent intent) {
+        int state = DEFAULT_STATE;
+        int normalizedState = DEFAULT_STATE;
+        boolean isBT = false;
+        if (action.equals(Intent.ACTION_HEADSET_PLUG)) {
+            state = intent.getIntExtra("state", DEFAULT_STATE);
+        } else if (action.equals(BluetoothHeadset.ACTION_CONNECTION_STATE_CHANGED)) {
+            state = intent.getIntExtra(BluetoothHeadset.EXTRA_STATE, DEFAULT_STATE);
+            isBT = true;
+        }
+
+        if ((state == 1 && action.equals(Intent.ACTION_HEADSET_PLUG)) || (state == 2 && action.equals(BluetoothHeadset.ACTION_CONNECTION_STATE_CHANGED))) {
+            if (isBT)
+            {
+                normalizedState = BT_CONNECTED;
+            }
+            else
+            {
+                normalizedState = CONNECTED;
+            }
+
+        } else if (state == 0) {
+            if (isBT)
+            {
+                normalizedState = BT_DISCONNECTED;
+            }
+            else
+            {
+                normalizedState = DISCONNECTED;
+            }
+
+        }
+
+        return normalizedState;
+    }
+
+    private boolean isHeadsetEnabled() {
+        Context context = this.cordova.getContext();
+        AudioManager am = (AudioManager) context.getSystemService(Context.AUDIO_SERVICE);
+
+        if (am == null)
+            return false;
+
+        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.M) {
+            return am.isWiredHeadsetOn() || am.isBluetoothScoOn() || am.isBluetoothA2dpOn();
+        } else {
+            AudioDeviceInfo[] devices = am.getDevices(AudioManager.GET_DEVICES_OUTPUTS);
+
+            for (int i = 0; i < devices.length; i++) {
+                AudioDeviceInfo device = devices[i];
+
+                if (device.getType() == AudioDeviceInfo.TYPE_WIRED_HEADSET
+                        || device.getType() == AudioDeviceInfo.TYPE_WIRED_HEADPHONES
+                        || device.getType() == AudioDeviceInfo.TYPE_BLUETOOTH_A2DP
+                        || device.getType() == AudioDeviceInfo.TYPE_BLUETOOTH_SCO) {
+                    return true;
+                }
+            }
+        }
+        return false;
     }
 
 }
