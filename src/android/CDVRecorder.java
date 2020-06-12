@@ -1162,6 +1162,4 @@ public class CDVRecorder extends CordovaPlugin {
         callbackContext.sendPluginResult(r);
         return true;
     }
-
-
 }

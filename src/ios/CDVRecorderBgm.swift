@@ -47,50 +47,38 @@ class CDVRecorderBgm {
             let remainingLength = (Double(audioFile.length) / sampleRate) - self.offset
             let framesToPlay = AVAudioFrameCount(Double(remainingLength) * sampleRate)
             playerNode.stop()
-            playerNode.scheduleSegment(audioFile, startingFrame: newSampleTime, frameCount: framesToPlay, at: nil, completionHandler: nil)
-            
-            // ループの時に利用するが、一旦コメントアウト
-//            playerNode.scheduleFile(audioFile , at: nil, completionCallbackType:.dataPlayedBack ,completionHandler: { _ in
-         
-//                if (self.loop) {
-//                    self.play()
-//                }
-//                else {
-//                    self.playerNode.pause()
-//                    self.status = "end"
-//                }
-//            })
-            
-            
-            // ヘッドフォンをつけている場合
-            if (self.isConnectedHeadphones()) {
-                self.resignMute() // ミュート解除
+            if (remainingLength != 0) {
+                playerNode.scheduleSegment(audioFile, startingFrame: newSampleTime, frameCount: framesToPlay, at: nil, completionHandler: nil)
+                      // ヘッドフォンをつけている場合
+                      if (self.isConnectedHeadphones()) {
+                          self.resignMute() // ミュート解除
+                      }
+                      // ヘッドフォンをつけていない場合
+                      else {
+                          self.mute() // ミュート
+                      }
+                      // 再生開始
+                      playerNode.play()
             }
-            // ヘッドフォンをつけていない場合
-            else {
-                self.mute() // ミュート
-            }
-            // 再生開始
-            playerNode.play()
+            
         }
 
     }
     
     // 停止
     func pause() {
-
+        // audio file がなければさわれない
         guard let audioFile = audioFile else {return}
-        let sampleRate = audioFile.processingFormat.sampleRate
-        if let nodeTime =  playerNode.lastRenderTime {
-            let playerTime = playerNode.playerTime(forNodeTime: nodeTime)
-            let currentTime = (Double(playerTime!.sampleTime) / sampleRate) + self.offset
-            self.offset = currentTime
-            print(self.offset)
-        }
 
-//        if (playerNode.isPlaying) {
-            playerNode.stop()
-//        }
+        let sampleRate = audioFile.processingFormat.sampleRate
+        if let nodeTime =  playerNode.lastRenderTime,
+           let playerTime = playerNode.playerTime(forNodeTime: nodeTime)
+        {
+            
+            let currentTime = (Double(playerTime.sampleTime) / sampleRate) + self.offset
+            self.offset = currentTime
+        }
+        playerNode.stop()
 
     }
     
@@ -123,7 +111,8 @@ class CDVRecorderBgm {
         // 再生時間を超えていた場合
         if position > duration {
             if (loop) {
-                positionToSeek = position - duration
+                let t = floor(position/duration)
+                positionToSeek = position/duration - t
             }
             else {
                 positionToSeek = duration
