@@ -190,6 +190,46 @@ import Alamofire
 
     }
     
+    @objc func importAudio(_ command: CDVInvokedUrlCommand){
+        guard let currentPath = command.argument(at: 0) as? String,
+            let currentAudioURL = URL(string: currentPath) else {
+            let result = CDVPluginResult(
+                status: CDVCommandStatus_ERROR,
+                messageAs: ErrorCode.argumentError.toDictionary(message: "[recorder: getAudio] First argument required. Please specify folder id")
+                )
+            self.commandDelegate.send(result, callbackId: command.callbackId)
+            return
+        }
+        do {
+            if !FileManager.default.fileExists(atPath: URL(fileURLWithPath: recordingDir).path) {
+                try FileManager.default.createDirectory(at: URL(fileURLWithPath: recordingDir), withIntermediateDirectories: true)
+            }
+            let path = self.getNewFolderPath()
+
+            let url = URL(fileURLWithPath: "\(path)/joined")
+            try FileManager.default.createDirectory(at: url, withIntermediateDirectories: true)
+            let target = url.appendingPathComponent("joined.wav")
+            try FileManager.default.moveItem(atPath: currentAudioURL.path, toPath: target.path)
+            let result = CDVPluginResult(status: CDVCommandStatus_OK, messageAs:folderID)
+            self.commandDelegate.send(result, callbackId: command.callbackId)
+        }
+        catch let err {
+            let message = ErrorCode.folderManipulationError.toDictionary(message: "can't get recording folders: \(err)")
+            let result = CDVPluginResult(
+             status: CDVCommandStatus_ERROR,
+             messageAs:message
+             )
+            self.commandDelegate.send(result, callbackId: command.callbackId)
+        }
+        
+        if let err = removeFolder(id: currentAudioURL.path) {
+            self.cordovaResultError(command, message: "remove folder error: \(err)")
+            return
+        }
+
+
+    }
+    
     // pause recording
     @objc func pause(_ command: CDVInvokedUrlCommand) {
         // スタートしていなかったらエラーを返す

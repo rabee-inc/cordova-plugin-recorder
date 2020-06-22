@@ -22,5 +22,8 @@
         <allow-intent href="itms:*" />
         <allow-intent href="itms-apps:*" />
         <!-- <hook type="after_platform_add" src="scripts/ios/after_platform_add.sh"></hook> -->
+        <edit-config file="*-Info.plist" mode="merge" target="NSMicrophoneUsageDescription">
+            <string>マイクへのアクセスを必要としています</string>
+        </edit-config>
     </platform>
 </widget>

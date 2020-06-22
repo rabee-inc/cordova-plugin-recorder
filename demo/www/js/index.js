@@ -29,6 +29,7 @@ function onDeviceReady() {
     const sampleRateButton = document.querySelector('.button4')
     const seekButton = document.querySelector('.button5')
     const seekMoreButton = document.querySelector('.button6')
+    const importButton = document.querySelector('.button7')
 
     button0.addEventListener('click', download);
     button1.addEventListener('click', play);
@@ -37,6 +38,7 @@ function onDeviceReady() {
     sampleRateButton.addEventListener('click', getSampleRate);
     seekButton.addEventListener('click', seekTo);
     seekMoreButton.addEventListener('click', seekToMore);
+    importButton.addEventListener('click', importAudio);
     recorder.initialize().then(() => {
         recorder.onChangeEarPhoneConnectedStatus((res) => {
             const message = res.isConnected ? 'イヤフォンが接続されました' : 'イヤフォンが外されました'
@@ -108,4 +110,11 @@ async function seekTo() {
 async function seekToMore() {
     const recorder = window.recorder;
     recorder.bgm.seek(100);
+}
+
+async function importAudio() {
+    const recorder = window.recorder;
+    var audio = await recorder.export();
+    var id = await recorder.importAudio(audio.audios[0].path);
+    window.alert(id);
 }
