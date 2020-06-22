@@ -204,10 +204,15 @@ import Alamofire
             if !FileManager.default.fileExists(atPath: URL(fileURLWithPath: recordingDir).path) {
                 try FileManager.default.createDirectory(at: URL(fileURLWithPath: recordingDir), withIntermediateDirectories: true)
             }
+            let timestamp = String(Int(NSDate().timeIntervalSince1970));
+            let path = self.getNewFolderPath()
             let id = generateId(length: 16)
-            try FileManager.default.moveItem(atPath: joinedAudioPath.path, toPath: recordingDir + "/\(id)")
+            currentAudioName = "\(id)_\(timestamp)";
+            let filePath = path.appendingPathComponent("\(currentAudioName!).wav")
             
-            let fileNames = try FileManager.default.contentsOfDirectory(atPath: recordingDir)
+            try FileManager.default.moveItem(atPath: joinedAudioPath.path, toPath: filePath.path)
+            
+            let fileNames = try FileManager.default.contentsOfDirectory(atPath: path.path)
             let result = CDVPluginResult(status: CDVCommandStatus_OK, messageAs:fileNames)
             self.commandDelegate.send(result, callbackId: command.callbackId)
         }
