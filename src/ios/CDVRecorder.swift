@@ -192,7 +192,7 @@ import Alamofire
     
     @objc func importAudio(_ command: CDVInvokedUrlCommand){
         guard let currentPath = command.argument(at: 0) as? String,
-            let joinedAudioPath = URL(string: currentPath) else {
+            let currentAudioURL = URL(string: currentPath) else {
             let result = CDVPluginResult(
                 status: CDVCommandStatus_ERROR,
                 messageAs: ErrorCode.argumentError.toDictionary(message: "[recorder: getAudio] First argument required. Please specify folder id")
@@ -204,15 +204,14 @@ import Alamofire
             if !FileManager.default.fileExists(atPath: URL(fileURLWithPath: recordingDir).path) {
                 try FileManager.default.createDirectory(at: URL(fileURLWithPath: recordingDir), withIntermediateDirectories: true)
             }
-            let timestamp = String(Int(NSDate().timeIntervalSince1970));
             let path = self.getNewFolderPath()
-            let id = generateId(length: 16)
-            currentAudioName = "\(id)_\(timestamp)";
-            let filePath = path.appendingPathComponent("\(currentAudioName!).wav")
             
-            try FileManager.default.moveItem(atPath: joinedAudioPath.path, toPath: filePath.path)
+            try FileManager.default.createDirectory(at: URL(fileURLWithPath: "\(path)/joined"), withIntermediateDirectories: true)
             
-            let fileNames = try FileManager.default.contentsOfDirectory(atPath: path.path)
+            
+            try FileManager.default.moveItem(atPath: currentAudioURL.path, toPath: URL(fileURLWithPath: "\(path)/joined/joined.wav").path)
+            
+            let fileNames = try FileManager.default.contentsOfDirectory(atPath: URL(fileURLWithPath: "\(path)/joined").path)
             let result = CDVPluginResult(status: CDVCommandStatus_OK, messageAs:fileNames)
             self.commandDelegate.send(result, callbackId: command.callbackId)
         }
@@ -225,7 +224,7 @@ import Alamofire
             self.commandDelegate.send(result, callbackId: command.callbackId)
         }
         
-        if let err = removeFolder(id: joinedAudioPath.path) {
+        if let err = removeFolder(id: currentAudioURL.path) {
             self.cordovaResultError(command, message: "remove folder error: \(err)")
             return
         }
