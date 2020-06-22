@@ -205,14 +205,12 @@ import Alamofire
                 try FileManager.default.createDirectory(at: URL(fileURLWithPath: recordingDir), withIntermediateDirectories: true)
             }
             let path = self.getNewFolderPath()
-            
-            try FileManager.default.createDirectory(at: URL(fileURLWithPath: "\(path)/joined"), withIntermediateDirectories: true)
-            
-            
-            try FileManager.default.moveItem(atPath: currentAudioURL.path, toPath: URL(fileURLWithPath: "\(path)/joined/joined.wav").path)
-            
-            let fileNames = try FileManager.default.contentsOfDirectory(atPath: URL(fileURLWithPath: "\(path)/joined").path)
-            let result = CDVPluginResult(status: CDVCommandStatus_OK, messageAs:fileNames)
+
+            let url = URL(fileURLWithPath: "\(path)/joined")
+            try FileManager.default.createDirectory(at: url, withIntermediateDirectories: true)
+            let target = url.appendingPathComponent("joined.wav")
+            try FileManager.default.moveItem(atPath: currentAudioURL.path, toPath: target.path)
+            let result = CDVPluginResult(status: CDVCommandStatus_OK, messageAs:folderID)
             self.commandDelegate.send(result, callbackId: command.callbackId)
         }
         catch let err {
