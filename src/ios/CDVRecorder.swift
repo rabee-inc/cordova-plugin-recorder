@@ -206,7 +206,7 @@ import Alamofire
             }
             let path = self.getNewFolderPath()
 
-            let url = URL(fileURLWithPath: "\(path)/joined")
+            let url = path.appendingPathComponent("joined", isDirectory: true)
             try FileManager.default.createDirectory(at: url, withIntermediateDirectories: true)
             let target = url.appendingPathComponent("joined.wav")
             try FileManager.default.moveItem(atPath: currentAudioURL.path, toPath: target.path)
@@ -229,7 +229,7 @@ import Alamofire
 
 
     }
-    
+
     // pause recording
     @objc func pause(_ command: CDVInvokedUrlCommand) {
         // スタートしていなかったらエラーを返す
