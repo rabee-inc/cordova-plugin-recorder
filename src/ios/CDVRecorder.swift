@@ -206,7 +206,7 @@ import Alamofire
             }
             let path = self.getNewFolderPath()
 
-            let url = path.appendingPathComponent("joined", isDirectory: true)
+            let url = URL(fileURLWithPath: "\(path.path)/joined")
             try FileManager.default.createDirectory(at: url, withIntermediateDirectories: true)
             let target = url.appendingPathComponent("joined.wav")
             try FileManager.default.moveItem(atPath: currentAudioURL.path, toPath: target.path)
