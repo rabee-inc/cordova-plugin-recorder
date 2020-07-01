@@ -729,12 +729,12 @@ public class CDVRecorder extends CordovaPlugin {
     }
 
     private void importAudio(final Activity activity, final CallbackContext callbackContext, String audioPath) {
-        File file;
+        File originalPath;
         if (audioPath != null) {
 
             String path = audioPath.replace("file://", "");
 
-            file = new File(path);
+            originalPath = new File(path);
 
             currentAudioId = getNewAudioId();
             File newMergedParentFile = new File(RECORDING_ROOT_DIR + "/" + currentAudioId);
@@ -751,7 +751,7 @@ public class CDVRecorder extends CordovaPlugin {
             JSONObject audioData = new JSONObject();
 
             try {
-                file.renameTo(mergedPath);
+                originalPath.renameTo(mergedPath);
                 fullAudio.put("path", "file://" + newMergedFile.getAbsoluteFile());
                 audioData.put("full_audio", fullAudio);
                 audioData.put("folder_id", currentAudioId);
