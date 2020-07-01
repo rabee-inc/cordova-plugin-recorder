@@ -262,6 +262,11 @@ public class CDVRecorder extends CordovaPlugin {
             float second = Float.parseFloat(args.get(0).toString());
             split(activity, callbackContext, second);
             return true;
+        } else if (action.equals("importAudio")){
+            cordova.setActivityResultCallback(this);
+            String audioPath = args.get(0).toString();
+            importAudio(activity, callbackContext, audioPath);
+            return true;
         } else if (action.equals("initSettings")) {
             // TODO: 設定を書く
             callbackContext.success("ok");
@@ -720,6 +725,47 @@ public class CDVRecorder extends CordovaPlugin {
 
                 }
             });
+        }
+    }
+
+    private void importAudio(final Activity activity, final CallbackContext callbackContext, String audioPath) {
+        File file;
+        if (audioPath != null) {
+
+            String path = audioPath.replace("file://", "");
+
+            file = new File(path);
+
+            currentAudioId = getNewAudioId();
+            File newMergedParentFile = new File(RECORDING_ROOT_DIR + "/" + currentAudioId);
+            if (!newMergedParentFile.exists()) {
+                newMergedParentFile.mkdir();
+            }
+            File newMergedFile = new File(RECORDING_ROOT_DIR + "/" + currentAudioId + "/merged/merged.wav");
+            File mergedPath = new File(newMergedFile.getAbsolutePath());
+            if (!mergedPath.getParentFile().exists()) {
+                mergedPath.getParentFile().mkdir();
+            }
+
+            JSONObject fullAudio = new JSONObject();
+            JSONObject audioData = new JSONObject();
+
+            try {
+                file.renameTo(mergedPath);
+                fullAudio.put("path", "file://" + newMergedFile.getAbsoluteFile());
+                audioData.put("full_audio", fullAudio);
+                audioData.put("folder_id", currentAudioId);
+
+                PluginResult result = new PluginResult(PluginResult.Status.OK, audioData);
+                callbackContext.sendPluginResult(result);
+            } catch (Exception e) {
+                callbackContext.error("error on importing");
+            }
+
+
+        } else {
+            callbackContext.error("please set audio");
+            return;
         }
     }
 
