@@ -128,8 +128,6 @@ public class CDVRecorder extends CordovaPlugin {
 
 
     public void initialize(CordovaInterface cordova, CordovaWebView webView) {
-        // voice permission
-        // ActivityCompat.requestPermissions(cordova.getActivity(), new String[]{Manifest.permission.RECORD_AUDIO}, VOICE_PERMISSION_REQUEST_CODE);
 
         // for setup bt detection
         IntentFilter intentFilter = new IntentFilter();
