@@ -321,12 +321,6 @@ public class CDVRecorder extends CordovaPlugin {
         return true;
     }
 
-//    @Override
-//    public void onRequestPermissionResult(int requestCode, List<String> permissions, List<int> grantResults) {
-//
-//    }
-
-
     
     
 
