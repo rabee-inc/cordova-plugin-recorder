@@ -1,6 +1,7 @@
 package jp.rabee.recorder;
 
 import android.Manifest;
+import android.content.pm.PackageManager;
 import android.app.Activity;
 import android.bluetooth.BluetoothHeadset;
 import android.content.BroadcastReceiver;
@@ -16,6 +17,8 @@ import android.media.MediaRecorder;
 import android.os.Build;
 import android.util.Log;
 import android.view.animation.AccelerateInterpolator;
+import androidx.core.content.ContextCompat;
+
 
 import com.otaliastudios.transcoder.Transcoder;
 import com.otaliastudios.transcoder.TranscoderListener;
@@ -125,8 +128,6 @@ public class CDVRecorder extends CordovaPlugin {
 
 
     public void initialize(CordovaInterface cordova, CordovaWebView webView) {
-        // voice permission
-        ActivityCompat.requestPermissions(cordova.getActivity(), new String[]{Manifest.permission.RECORD_AUDIO}, VOICE_PERMISSION_REQUEST_CODE);
 
         // for setup bt detection
         IntentFilter intentFilter = new IntentFilter();
@@ -267,6 +268,10 @@ public class CDVRecorder extends CordovaPlugin {
             String audioPath = args.get(0).toString();
             importAudio(activity, callbackContext, audioPath);
             return true;
+        } else if (action.equals("getMicPermission")){
+            cordova.setActivityResultCallback(this);
+            getMicPermission(activity, callbackContext);
+            return true;
         } else if (action.equals("initSettings")) {
             // TODO: 設定を書く
             callbackContext.success("ok");
@@ -295,6 +300,29 @@ public class CDVRecorder extends CordovaPlugin {
         }
 
     }
+
+    
+
+    // パーミッションあるかどうか確認=>なければリクエスト出す
+    private boolean checkSelfPermission(String permission, int requestCode) {
+        Log.i(TAG, "checkSelfPermission $permission $requestCode");
+        return ContextCompat.checkSelfPermission(cordova.getContext(),
+                        permission) == PackageManager.PERMISSION_GRANTED;
+    }
+
+    private boolean getMicPermission(Activity activity, CallbackContext callbackContext) {
+        boolean hasPermission = checkSelfPermission(android.Manifest.permission.RECORD_AUDIO, VOICE_PERMISSION_REQUEST_CODE);
+        // mic permission を確認
+        if (!hasPermission) {
+            cordova.requestPermissions(this, VOICE_PERMISSION_REQUEST_CODE, new String[]{Manifest.permission.RECORD_AUDIO});
+        }
+        PluginResult p = new PluginResult(PluginResult.Status.OK, hasPermission);
+        callbackContext.sendPluginResult(p);
+        return true;
+    }
+
+    
+    
 
     @Override
     public void onActivityResult(int requestCode, int resultCode, Intent intent) {

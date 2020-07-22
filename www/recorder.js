@@ -61,6 +61,7 @@ const recorder = {
   getAudio: (params) => createAction('getAudio', params),
   getSampleRate: (params) => createAction('getSampleRate', params),
   importAudio: (params) => createAction('importAudio', params),
+  getMicPermission: (params) => createAction('getMicPermission', params),
   // イベントリスナー系
   onPushBuffer: (callback, onFail, param) => {
     return exec(callback, onFail, "Recorder", "onPushBuffer", [param]);

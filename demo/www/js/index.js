@@ -30,6 +30,7 @@ function onDeviceReady() {
     const seekButton = document.querySelector('.button5')
     const seekMoreButton = document.querySelector('.button6')
     const importButton = document.querySelector('.button7')
+    const getMicPermissionButton = document.querySelector('.button8')
 
     button0.addEventListener('click', download);
     button1.addEventListener('click', play);
@@ -39,6 +40,7 @@ function onDeviceReady() {
     seekButton.addEventListener('click', seekTo);
     seekMoreButton.addEventListener('click', seekToMore);
     importButton.addEventListener('click', importAudio);
+    getMicPermissionButton.addEventListener('click', getMicPermission)
     recorder.initialize().then(() => {
         recorder.onChangeEarPhoneConnectedStatus((res) => {
             const message = res.isConnected ? 'イヤフォンが接続されました' : 'イヤフォンが外されました'
@@ -117,4 +119,10 @@ async function importAudio() {
     var audio = await recorder.export();
     var id = await recorder.importAudio(audio.audios[0].path);
     window.alert(id);
+}
+
+async function getMicPermission() {
+    const recorder = window.recorder;
+    var result = await recorder.getMicPermission();
+    window.alert(result);
 }
