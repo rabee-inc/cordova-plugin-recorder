@@ -473,7 +473,6 @@ import Alamofire
             let audioFile = try AVAudioFile(forReading: joinedAudioPath)
             // 全てのフレーム数
             let nframe = Int(audioFile.length)
-            print("----------\(nframe)------ DURATION \(Int(audioFile.length) / Int(audioFile.processingFormat.channelCount) / Int(audioFile.processingFormat.sampleRate))")
             var output: [Float] = []
             
             // 1ループごとに読み込むフレーム数
