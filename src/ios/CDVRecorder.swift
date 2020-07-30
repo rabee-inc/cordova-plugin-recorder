@@ -4,7 +4,7 @@ import Accelerate
 import Alamofire
 
 @objc(CDVRecorder) class CDVRecorder : CDVPlugin, AVAudioPlayerDelegate {
-    let bufferSize = 4096
+    var bufferSize = 4096
 
     var engine: AVAudioEngine?
     var recordingDir = ""
@@ -79,6 +79,7 @@ import Alamofire
     
     // called starting app
     override func pluginInitialize() {
+        bufferSize = 4096
         print("[cordova plugin REC. intializing]")
         // エンジンとミキサーの初期化
         engine = AVAudioEngine()
@@ -468,17 +469,28 @@ import Alamofire
             return
         }
         do {
+            // 音声ファイル読み込み
             let audioFile = try AVAudioFile(forReading: joinedAudioPath)
+            // 全てのフレーム数
             let nframe = Int(audioFile.length)
-            let PCMBuffer = AVAudioPCMBuffer(pcmFormat: audioFile.processingFormat, frameCapacity: AVAudioFrameCount(nframe))!
-            try audioFile.read(into: PCMBuffer)
-            guard let floatChannelData = PCMBuffer.floatChannelData else {
-                // TODO エラーハンドリング
-                return
+            var output: [Float] = []
+            
+            // 1ループごとに読み込むフレーム数
+            let frameCapacity = AVAudioFrameCount(bufferSize)
+            // 最後までループする
+            while audioFile.framePosition < nframe {
+                let PCMBuffer = AVAudioPCMBuffer(pcmFormat: audioFile.processingFormat, frameCapacity: frameCapacity)!
+                // read すると framePosition が進む
+                try audioFile.read(into: PCMBuffer, frameCount: PCMBuffer.frameCapacity)
+                // 最大音量を配列に追加する
+                output.append(getMaxVolume(buffer: PCMBuffer))
             }
-            let bufferData = Data(buffer: UnsafeMutableBufferPointer<Float>(start:floatChannelData[0], count: nframe))
+            
+            // ファイル書き込み
+            let bufferData = Data(buffer: UnsafeRawBufferPointer.init(start: output, count: output.count * 4).bindMemory(to: Float.self))
             let pcmBufferPath = URL(fileURLWithPath: recordingDir + "/\(folderID)/temppcmbuffer")
             try bufferData.write(to: pcmBufferPath)
+            
             let result = CDVPluginResult(status: CDVCommandStatus_OK, messageAs: pcmBufferPath.absoluteString)
             self.commandDelegate.send(result, callbackId: command.callbackId)
         } catch let err {
@@ -748,6 +760,23 @@ import Alamofire
         return flag
     }
     
+    
+    // 1 チャンネルの最大音量を取得
+    private func getMaxVolume(buffer: AVAudioPCMBuffer) -> Float {
+        var maxVolume: Float = 0
+        var n = 0
+        let data = buffer.floatChannelData![0]
+        let length = Int(buffer.frameLength)
+        while n < length {
+            let volume = abs(data[n])
+            if (volume > maxVolume) {
+                maxVolume = volume
+            }
+            n += 1
+        }
+        return maxVolume
+    }
+    
     // start private func
     private func startRecord(path: URL) {
         do {
@@ -780,8 +809,7 @@ import Alamofire
                 guard let self = self else {return}
                 // call back が登録されていたら
                 if self.pushBufferCallBackId != nil {
-                    let b = Array(UnsafeBufferPointer(start: buffer.floatChannelData![0], count:Int(buffer.frameLength)))
-                    let result = CDVPluginResult(status: CDVCommandStatus_OK, messageAs: b)
+                    let result = CDVPluginResult(status: CDVCommandStatus_OK, messageAs: [self.getMaxVolume(buffer: buffer)])
                     result?.keepCallback = true
                     self.commandDelegate.send(result, callbackId: self.pushBufferCallBackId)
                 }
