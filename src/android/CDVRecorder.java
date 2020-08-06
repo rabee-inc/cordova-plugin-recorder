@@ -13,7 +13,9 @@ import android.media.AudioFormat;
 import android.media.AudioManager;
 import android.media.AudioRecord;
 import android.media.MediaCodec;
+import android.media.MediaMetadataRetriever;
 import android.media.MediaRecorder;
+import android.net.Uri;
 import android.os.Build;
 import android.util.Log;
 import android.view.animation.AccelerateInterpolator;
@@ -467,16 +469,23 @@ public class CDVRecorder extends CordovaPlugin {
     }
 
 
+    @RequiresApi(api = Build.VERSION_CODES.LOLLIPOP)
     private void getAudio(final Activity activity, final CallbackContext callbackContext, final String audioId) {
-        File inputFile = new File(RECORDING_ROOT_DIR + "/" + audioId + "/merged/merged.wav");
+        String pathname = RECORDING_ROOT_DIR + "/" + audioId + "/merged/merged.wav";
+        File inputFile = new File(pathname);
 
         JSONObject audioData = new JSONObject();
         JSONObject fullAudio = new JSONObject();
 
         try {
             fullAudio.put("path", "file://" + inputFile.getAbsoluteFile());
-            audioData.put("full_audio", fullAudio);
+            Uri uri = Uri.parse(pathname);
+            MediaMetadataRetriever mmr = new MediaMetadataRetriever();
+            mmr.setDataSource(this.cordova.getContext(), uri);
+            String durationStr = mmr.extractMetadata(MediaMetadataRetriever.METADATA_KEY_DURATION);
 
+            fullAudio.put("duration", Integer.parseInt(durationStr) / 1000.0);
+            audioData.put("full_audio", fullAudio);
             callbackContext.success(audioData);
 
         } catch (Exception e) {
