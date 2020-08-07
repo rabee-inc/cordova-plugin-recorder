@@ -437,7 +437,7 @@ import Alamofire
             let audioPath = URL(fileURLWithPath: (recordingDir + "/\(folderID)/joined/\(j)"))
             let asset = AVURLAsset(url:audioPath)
             
-            let joinedAudio = Audio(name: "joined_audio", duration: String(asset.duration.value), path: audioPath.absoluteString)
+            let joinedAudio = Audio(name: "joined_audio", duration: String(asset.duration.seconds), path: audioPath.absoluteString)
             
             let audio = RecordedAudio(audios: [], fullAudio: joinedAudio, folderID: folderID)
             
@@ -570,7 +570,7 @@ import Alamofire
                     
                     let asset = AVURLAsset(url: joined_folder);
                     
-                    exportAudio = Audio(name:"joined_audio", duration: String(asset.duration.value), path: joined_folder.absoluteString)
+                    exportAudio = Audio(name:"joined_audio", duration: String(asset.duration.seconds), path: joined_folder.absoluteString)
                     
                     semaphore.signal()
                 case .failed, .cancelled:
@@ -639,7 +639,7 @@ import Alamofire
                 switch (session.status) {
                 case .completed:
                     print("[completed -------------------------->]")
-                    audio = Audio(name: "joined_audio", duration: String(asset.duration.value), path: outputPath.absoluteString )
+                    audio = Audio(name: "joined_audio", duration: String(asset.duration.seconds), path: outputPath.absoluteString )
                     semaphore.signal()
                     break
                 case .failed:
@@ -857,7 +857,7 @@ import Alamofire
         let folderPath = getCurrentFolderPath().absoluteString
         let fullAudioPath = folderPath + "queue/\(currentAudioName!).wav"
         let asset = AVURLAsset(url: URL(string: fullAudioPath)!)
-        let data = Audio(name: currentAudioName!, duration: String(asset.duration.value), path: fullAudioPath)
+        let data = Audio(name: currentAudioName!, duration: String(asset.duration.seconds), path: fullAudioPath)
         queue.append(data)
         
         // 追加が終わったら true
@@ -990,7 +990,7 @@ import Alamofire
                     
                     let asset = AVURLAsset(url: joinedFolder);
                     
-                    result = Audio(name:"joined_audio", duration: String(asset.duration.value), path: joinedFolder.absoluteString)
+                    result = Audio(name:"joined_audio", duration: String(asset.duration.seconds), path: joinedFolder.absoluteString)
                     
                     semaphore.signal()
                 case .failed, .cancelled:
