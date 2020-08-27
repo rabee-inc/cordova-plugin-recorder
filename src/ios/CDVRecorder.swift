@@ -487,7 +487,7 @@ import Alamofire
             }
             
             // ファイル書き込み
-            let bufferData = Data(buffer: UnsafeRawBufferPointer.init(start: output, count: output.count * 4).bindMemory(to: Float.self))
+            let bufferData = Data(bytes: output, count: output.count * 4)
             let pcmBufferPath = URL(fileURLWithPath: recordingDir + "/\(folderID)/temppcmbuffer")
             try bufferData.write(to: pcmBufferPath)
             
