@@ -15,7 +15,6 @@ import Alamofire
     var downloadBgmProgressCallbackId: String?
     
     var commpressProgressCallBackId: String?
-    var audioSession: AVAudioSession?
     var headphonesConnected = false
     var audioMixer: AVAudioMixerNode?
     private var progress: Progress?
@@ -102,8 +101,7 @@ import Alamofire
     // initalize
     @objc func initialize(_ command: CDVInvokedUrlCommand) {
         // 録音する許可がされているか？
-        audioSession = AVAudioSession.sharedInstance()
-        audioSession?.requestRecordPermission {[weak self] granted in
+        AVAudioSession.sharedInstance().requestRecordPermission {[weak self] granted in
             guard let self = self else { return }
             if !granted {
                 let message = ErrorCode.permissionError.toDictionary(message: "deny permission")
@@ -793,12 +791,12 @@ import Alamofire
             // base data
             let filePath = folderPath.appendingPathComponent("\(currentAudioName!).wav")
             
-
             // audioSession をアクティブにする
-            try self.audioSession?.setCategory(AVAudioSessionCategoryPlayAndRecord,
+            let audioSession = AVAudioSession.sharedInstance()
+            try audioSession.setCategory(AVAudioSessionCategoryPlayAndRecord,
                                                mode: AVAudioSessionModeDefault,
                                                options: [.allowBluetoothA2DP, .allowBluetooth, .allowAirPlay])
-            try self.audioSession?.setActive(true)
+            try audioSession.setActive(true)
             
             // マイクのフォーマット
             let micFormat = self.getInputFormat()
@@ -846,8 +844,7 @@ import Alamofire
         
         do {
             // セッションを非アクティブ化
-            try self.audioSession?.setActive(false)
-            self.audioSession = nil
+            try AVAudioSession.sharedInstance().setActive(false)
         } catch let err {
             // エラーハンドリング
             throw err
