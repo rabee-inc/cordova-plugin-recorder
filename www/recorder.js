@@ -55,6 +55,7 @@ const recorder = {
   export: (params) => createAction('export', params),
   exportWithCompression: (params) => createAction('exportWithCompression', params),
   getWaveForm: (params) => createAction('getWaveForm', params),
+  getWaveFormByFile: (params) => createAction('getWaveFormByFile', params),
   initSettings: (params) => createAction('initSettings', params),
   exportWithCompression: (params) => createAction('exportWithCompression', params),
   split: (params) => createAction('split', params),
