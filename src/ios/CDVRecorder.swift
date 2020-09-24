@@ -8,6 +8,8 @@ import Alamofire
 
     var engine: AVAudioEngine?
     var recordingDir = ""
+    var tempDir = ""
+    var tempWaveFormPath = ""
     var isRecording = false
     var pushBufferCallBackId: String?
     var changeConnectedEarPhoneStatusCallBackId: String?
@@ -90,11 +92,19 @@ import Alamofire
         _ = progress?.observe(\.fractionCompleted, changeHandler: { p,_  in
             print(p.fractionCompleted)
         })
-        
-        recordingDir = NSSearchPathForDirectoriesInDomains(.documentDirectory, .userDomainMask, true).first! + "/recording"
+        let documentDir = NSSearchPathForDirectoriesInDomains(.documentDirectory, .userDomainMask, true).first!
+        recordingDir = documentDir + "/recording"
+        tempDir = documentDir + "/CDVRecorderTemp"
+        tempWaveFormPath = tempDir + "/waveform"
         queue = []
         currentAudios = []
         bgms = []
+        do {
+            try FileManager.default.createDirectory(atPath: tempDir, withIntermediateDirectories: true, attributes: nil)
+        }
+        catch let error {
+            print(error)
+        }
     }
     
     
@@ -455,7 +465,7 @@ import Alamofire
         }
     }
     
-    // 波形を取得する
+    // 録音中のものの波形を取得する
     @objc func getWaveForm(_ command: CDVInvokedUrlCommand) {
         guard let id = command.argument(at: 0) as? String,
             let joinedAudioPath = URL(string: id) else {
@@ -467,33 +477,62 @@ import Alamofire
             return
         }
         do {
-            // 音声ファイル読み込み
-            let audioFile = try AVAudioFile(forReading: joinedAudioPath)
-            // 全てのフレーム数
-            let nframe = Int(audioFile.length)
-            var output: [Float] = []
-            
-            // 1ループごとに読み込むフレーム数
-            let frameCapacity = AVAudioFrameCount(bufferSize)
-            // 最後までループする
-            while audioFile.framePosition < nframe {
-                let PCMBuffer = AVAudioPCMBuffer(pcmFormat: audioFile.processingFormat, frameCapacity: frameCapacity)!
-                // read すると framePosition が進む
-                try audioFile.read(into: PCMBuffer, frameCount: PCMBuffer.frameCapacity)
-                // 最大音量を配列に追加する
-                output.append(getMaxVolume(buffer: PCMBuffer))
-            }
-            
-            // ファイル書き込み
-            let bufferData = Data(bytes: output, count: output.count * 4)
-            let pcmBufferPath = URL(fileURLWithPath: recordingDir + "/\(folderID)/temppcmbuffer")
-            try bufferData.write(to: pcmBufferPath)
-            
+            let pcmBufferPath = try getWaveForm(path: joinedAudioPath, tempPath: recordingDir + "/\(folderID)/temppcmbuffer")
             let result = CDVPluginResult(status: CDVCommandStatus_OK, messageAs: pcmBufferPath.absoluteString)
             self.commandDelegate.send(result, callbackId: command.callbackId)
         } catch let err {
             self.cordovaResultError(command, message: "get wave form error: \(err)")
         }
+    }
+    
+    // 選択したファイルから波形を取得する
+    @objc func getWaveFormByFile(_ command: CDVInvokedUrlCommand) {
+        guard let id = command.argument(at: 0) as? String,
+            let filePath = URL(string: id) else {
+            let result = CDVPluginResult(
+                status: CDVCommandStatus_ERROR,
+                messageAs: ErrorCode.argumentError.toDictionary(message: "[recorder: getAudio] First argument required. Please specify file path")
+                )
+            self.commandDelegate.send(result, callbackId: command.callbackId)
+            return
+        }
+        
+        do {
+            let pcmBufferPath = try getWaveForm(path: filePath, tempPath: tempWaveFormPath)
+            let result = CDVPluginResult(status: CDVCommandStatus_OK, messageAs: pcmBufferPath.absoluteString)
+            self.commandDelegate.send(result, callbackId: command.callbackId)
+        } catch let err {
+            self.cordovaResultError(command, message: "get wave form error: \(err)")
+        }
+    }
+    
+    /**
+        path: 波形取得対象のローカルファイル
+        一時保存のディレクトリ
+     */
+    @objc func getWaveForm(path: URL, tempPath: String) throws -> URL  {
+        // 音声ファイル読み込み
+        let audioFile = try AVAudioFile(forReading: path)
+        // 全てのフレーム数
+        let nframe = Int(audioFile.length)
+        var output: [Float] = []
+        
+        // 1ループごとに読み込むフレーム数
+        let frameCapacity = AVAudioFrameCount(bufferSize)
+        // 最後までループする
+        while audioFile.framePosition < nframe {
+            let PCMBuffer = AVAudioPCMBuffer(pcmFormat: audioFile.processingFormat, frameCapacity: frameCapacity)!
+            // read すると framePosition が進む
+            try audioFile.read(into: PCMBuffer, frameCount: PCMBuffer.frameCapacity)
+            // 最大音量を配列に追加する
+            output.append(getMaxVolume(buffer: PCMBuffer))
+        }
+        
+        // ファイル書き込み
+        let bufferData = Data(bytes: output, count: output.count * 4)
+        let pcmBufferPath = URL(fileURLWithPath: tempPath)
+        try bufferData.write(to: pcmBufferPath)
+        return pcmBufferPath
     }
     
     // 分割する
