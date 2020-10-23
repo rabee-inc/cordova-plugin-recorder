@@ -1075,7 +1075,6 @@ public class CDVRecorder extends CordovaPlugin {
     }
 
     private short getMaxVolume(final short[] shorts) {
-        short min = Short.MAX_VALUE;
         short max = Short.MIN_VALUE;
         for (short s : shorts) {
             if (s > max){
