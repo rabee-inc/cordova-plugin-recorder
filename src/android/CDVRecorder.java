@@ -44,14 +44,18 @@ import org.json.JSONObject;
 
 import java.io.File;
 import java.io.FileInputStream;
+import java.io.FileNotFoundException;
 import java.io.FileOutputStream;
 import java.io.IOException;
 import java.io.InputStream;
 import java.io.OutputStream;
 import java.math.BigDecimal;
 import java.math.RoundingMode;
+import java.nio.ByteBuffer;
+import java.nio.ByteOrder;
 import java.text.SimpleDateFormat;
 import java.util.ArrayList;
+import java.util.Arrays;
 import java.util.Collection;
 import java.util.HashMap;
 import java.util.List;
@@ -84,6 +88,7 @@ public class CDVRecorder extends CordovaPlugin {
     private static final String TAG = CDVRecorder.class.getSimpleName();
     // media settings
     private static final int SAMPLE_RATE = 44100;
+    private static final int BUFFER_NUM = 4096;
     private static final int SAMPLE_RATE_INDEX = 4;
     private static final int CHANNELS = 1;
     private static final int BIT_RATE = 32000;
@@ -95,11 +100,14 @@ public class CDVRecorder extends CordovaPlugin {
     private AudioRecord audioRecord;
     private OutputStream outputStream;
 
-    private File file;
+    private File inputFile;
 
     private Recorder recorder;
 
     private String RECORDING_ROOT_DIR;
+    private String TEMP_DIR;
+    private String WAVEFORM_PATH;
+    private String TEMP_WAV;
     private String action;
     private CallbackContext callbackContext;
     private CallbackContext pushBufferCallbackContext;
@@ -179,12 +187,18 @@ public class CDVRecorder extends CordovaPlugin {
 
         // root フォルダーのチェック
         RECORDING_ROOT_DIR = cordova.getContext().getFilesDir() + "/recording";
+        TEMP_DIR = cordova.getContext().getFilesDir() + "/CDVRecorderTemp";
+        WAVEFORM_PATH = TEMP_DIR + "/waveform";
+        TEMP_WAV = TEMP_DIR + "/temp.wav";
         // root フォルダーの存在チェック
         File file = new File(RECORDING_ROOT_DIR);
         if (!file.exists()) {
             file.mkdir();
         }
-
+        File tempFile = new File(TEMP_DIR);
+        if (!tempFile.exists()) {
+            tempFile.mkdir();
+        }
     }
 
     public boolean execute(final String action, JSONArray args, final CallbackContext callbackContext)
@@ -259,6 +273,11 @@ public class CDVRecorder extends CordovaPlugin {
             cordova.setActivityResultCallback(this);
             String audioPath = args.get(0).toString();
             getWaveForm(activity, callbackContext, audioPath);
+            return true;
+        } else if (action.equals("getWaveFormByFile")) {
+            cordova.setActivityResultCallback(this);
+            String audioPath = args.get(0).toString();
+            getWaveFormByFile(activity, callbackContext, audioPath);
             return true;
         } else if (action.equals("split")) {
             cordova.setActivityResultCallback(this);
@@ -491,6 +510,48 @@ public class CDVRecorder extends CordovaPlugin {
         } catch (Exception e) {
 
         }
+    }
+
+
+    // 音声ファイルをwavに変換する
+    private Promise convertToWav(File inputFile, File outputFile) {
+
+        Deferred deferred = new DeferredObject();
+        Promise promise = deferred.promise();
+
+        FFmpeg ffmpeg = FFmpeg.getInstance(cordova.getContext());
+        if (ffmpeg.isSupported()) {
+            ffmpeg.execute(new String[]{"-i", inputFile.getAbsolutePath(), outputFile.getAbsolutePath()}, new ExecuteBinaryResponseHandler() {
+                @Override
+                public void onStart() {
+                    LOG.v(TAG, "start");
+                }
+
+                @Override
+                public void onProgress(String message) {
+                    LOG.v(TAG, message);
+                }
+
+                @Override
+                public void onFailure(String message) {
+                    LOG.v(TAG, message);
+
+                }
+
+                @Override
+                public void onSuccess(String message) {
+                    LOG.v(TAG, message);
+                }
+
+                @Override
+                public void onFinish() {
+                    LOG.v(TAG, "finish");
+                    deferred.resolve(null);
+                }
+            });
+        }
+
+        return promise;
     }
 
     // 録音したファイルをマージする
@@ -823,55 +884,123 @@ public class CDVRecorder extends CordovaPlugin {
             return;
         }
 
-
         File tempwaveform = new File(RECORDING_ROOT_DIR + "/" + currentAudioId + "/tempwaveform/temppcmbuffer");
-        if (!tempwaveform.getParentFile().exists()) {
-            tempwaveform.getParentFile().mkdir();
-        }
-
         cordova.getThreadPool().execute(new Runnable() {
             @Override
             public void run() {
                 try {
-
-                    InputStream input = new FileInputStream(file);
-
-                    input.skip(36);
-                    byte[] chunkID = new byte[4];
-                    input.read(chunkID);
-                    LOG.e(TAG, new String(chunkID, "UTF-8"));
-                    if (new String(chunkID, "UTF-8").equals("LIST")) {
-                        byte[] chunkSize = new byte[4];
-                        input.read(chunkSize);
-                        int chunkSizeInt = chunkSize[0] + (chunkSize[1] << 8) + (chunkSize[2] << 16) + (chunkSize[3] << 24);
-                        input.skip(chunkSizeInt + 4 + 4);
-                    }
-                    // chunkID が data と仮定
-                    else {
-                        input.skip(4);
-                    }
-                    byte[] data = new byte[input.available()];
-                    input.read(data);
-                    input.close();
-                    try {
-
-                        OutputStream output = new FileOutputStream(tempwaveform);
-                        output.write(data);
-                        output.close();
-                        callbackContext.success("file://" + tempwaveform.getAbsolutePath());
-                    } catch (Exception e) {
-                        e.printStackTrace();
-                    }
-
-                } catch (Exception e) {
+                    callbackContext.success(getWaveForm(file, tempwaveform));
+                }
+                catch (Exception e) {
+                    callbackContext.error("波形の取得に失敗しました。\n" + e);
                     e.printStackTrace();
                 }
             }
         });
+    }
+    
+    private String getWaveForm(File inputFile, File outputFile) throws IOException, WavFileException {
+        if (!outputFile.getParentFile().exists()) {
+            outputFile.getParentFile().mkdir();
+        }
+        WavFile wavFile = WavFile.openWavFile(inputFile);
+        // Get the number of audio channels in the wav file
+        int numChannels = wavFile.getNumChannels();
 
-
+        int[] buffer = new int[BUFFER_NUM * numChannels];
+        int outputBufferNum = (int) Math.ceil((double) wavFile.getNumFrames() / BUFFER_NUM);
+        short[] outputBuffer = new short[outputBufferNum];
+        int outputBufferIndex = 0;
+        int framesRead;
+        while(true) {
+            int max = Integer.MIN_VALUE;
+            // 波形を読み込む
+            framesRead = wavFile.readFrames(buffer, BUFFER_NUM);
+            if (framesRead == 0) {
+                break;
+            }
+            // 最大音量を取得
+            for (int s = 0; s < framesRead * numChannels ; s++) {
+                int v = Math.abs(buffer[s]);
+                if (v > max) max = v;
+            }
+            short sMax = (short) Math.min(max, Short.MAX_VALUE);
+            outputBuffer[outputBufferIndex++] = sMax;
+        }
+        // Close the wavFile
+        wavFile.close();
+        // short 配列を byte 配列に変換してファイル書き込み
+        ByteBuffer byteBuffer = ByteBuffer.allocate(outputBuffer.length * 2);
+        byteBuffer.order(ByteOrder.LITTLE_ENDIAN);
+        byteBuffer.asShortBuffer().put(outputBuffer);
+        byte[] bytes = byteBuffer.array();
+        OutputStream output = new FileOutputStream(outputFile);
+        output.write(bytes);
+        output.close();
+        return "file://" + outputFile.getAbsolutePath();
     }
 
+    /**
+     * ファイルパスから波形データのパスを取得する
+     * @param activity
+     * @param callbackContext
+     * @param audioPath
+     */
+    private void getWaveFormByFile(final Activity activity, final CallbackContext callbackContext, String audioPath) {
+        Uri uri = Uri.parse(audioPath);
+        MediaMetadataRetriever mmr = new MediaMetadataRetriever();
+        mmr.setDataSource(cordova.getContext(), uri);
+        String mimeType = mmr.extractMetadata(MediaMetadataRetriever.METADATA_KEY_MIMETYPE);
+
+        // 音声ファイルかどうか
+        if (mimeType.matches("^audio.*")) {
+            // wav かどうか
+            if (mimeType.matches(".*wav")) {
+                File file = new File(audioPath);
+                // 処理をそのまま続行
+                cordova.getThreadPool().execute(new Runnable() {
+                    @Override
+                    public void run() {
+                        try {
+                            callbackContext.success(getWaveForm(file, new File(WAVEFORM_PATH)));
+                        }
+                        catch (Exception e) {
+                            callbackContext.error("波形の取得に失敗しました。\n" + e);
+                            e.printStackTrace();
+                        }
+                    }
+                });
+            }
+            // wav 以外
+            else {
+                // 対象パスの変数を変換後のwavに置き換え
+                File inputFile = new File(audioPath);
+                File file = new File(TEMP_WAV);
+                // ffmpeg で wav に変換してから処理をする
+                convertToWav(inputFile, file).done(new DoneCallback<Object>() {
+                    @Override
+                    public void onDone(Object v) {
+                        cordova.getThreadPool().execute(new Runnable() {
+                            @Override
+                            public void run() {
+                                try {
+                                    callbackContext.success(getWaveForm(file, new File(WAVEFORM_PATH)));
+                                }
+                                catch (Exception e) {
+                                    callbackContext.error("波形の取得に失敗しました。\n" + e);
+                                    e.printStackTrace();
+                                }
+                            }
+                        });
+                    }
+                });
+            }
+        }
+        else {
+            // 音声ファイル以外
+            callbackContext.error("音声ファイルを選択してください");
+        }
+    }
 
     private PullableSource mic() {
         return
@@ -879,7 +1008,7 @@ public class CDVRecorder extends CordovaPlugin {
                         new AudioRecordConfig.Default(
                                 MediaRecorder.AudioSource.MIC, AudioFormat.ENCODING_PCM_16BIT,
                                 AudioFormat.CHANNEL_IN_MONO, SAMPLE_RATE
-                        ), 4096 * 4
+                        ), BUFFER_NUM * 2
                 );
     }
 
@@ -922,7 +1051,9 @@ public class CDVRecorder extends CordovaPlugin {
                         public void onAudioChunkPulled(AudioChunk audioChunk) {
 
                             if (pushBufferCallbackContext != null) {
-                                PluginResult result = new PluginResult(PluginResult.Status.OK, audioChunk.toBytes());
+                                JSONArray jsonArray = new JSONArray();
+                                jsonArray.put(getMaxVolume(audioChunk.toShorts()));
+                                PluginResult result = new PluginResult(PluginResult.Status.OK, jsonArray);
                                 result.setKeepCallback(true);
                                 pushBufferCallbackContext.sendPluginResult(result);
                             }
@@ -941,6 +1072,17 @@ public class CDVRecorder extends CordovaPlugin {
 
             }
         });
+    }
+
+    private short getMaxVolume(final short[] shorts) {
+        short min = Short.MAX_VALUE;
+        short max = Short.MIN_VALUE;
+        for (short s : shorts) {
+            if (s > max){
+                max = s;
+            }
+        }
+        return max;
     }
 
     private Boolean setBgm(final Activity activity, final CallbackContext callbackContext, JSONObject bgmObj) throws JSONException {
