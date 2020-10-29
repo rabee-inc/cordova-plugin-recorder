@@ -521,7 +521,7 @@ public class CDVRecorder extends CordovaPlugin {
 
         FFmpeg ffmpeg = FFmpeg.getInstance(cordova.getContext());
         if (ffmpeg.isSupported()) {
-            ffmpeg.execute(new String[]{"-i", inputFile.getAbsolutePath(), outputFile.getAbsolutePath()}, new ExecuteBinaryResponseHandler() {
+            ffmpeg.execute(new String[]{"-y", "-i", inputFile.getAbsolutePath(), outputFile.getAbsolutePath()}, new ExecuteBinaryResponseHandler() {
                 @Override
                 public void onStart() {
                     LOG.v(TAG, "start");
@@ -973,27 +973,9 @@ public class CDVRecorder extends CordovaPlugin {
             }
             // wav 以外
             else {
-                // 対象パスの変数を変換後のwavに置き換え
-                File inputFile = new File(audioPath);
-                File file = new File(TEMP_WAV);
-                // ffmpeg で wav に変換してから処理をする
-                convertToWav(inputFile, file).done(new DoneCallback<Object>() {
-                    @Override
-                    public void onDone(Object v) {
-                        cordova.getThreadPool().execute(new Runnable() {
-                            @Override
-                            public void run() {
-                                try {
-                                    callbackContext.success(getWaveForm(file, new File(WAVEFORM_PATH)));
-                                }
-                                catch (Exception e) {
-                                    callbackContext.error("波形の取得に失敗しました。\n" + e);
-                                    e.printStackTrace();
-                                }
-                            }
-                        });
-                    }
-                });
+                // 復元しないでエラーで返す
+                callbackContext.error("invalid file type");
+                return;
             }
         }
         else {
