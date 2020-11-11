@@ -22,6 +22,8 @@ import android.view.animation.AccelerateInterpolator;
 import androidx.core.content.ContextCompat;
 
 
+import com.arthenica.mobileffmpeg.ExecuteCallback;
+import com.arthenica.mobileffmpeg.FFmpeg;
 import com.otaliastudios.transcoder.Transcoder;
 import com.otaliastudios.transcoder.TranscoderListener;
 import com.otaliastudios.transcoder.engine.TrackType;
@@ -67,8 +69,6 @@ import androidx.annotation.RequiresApi;
 import androidx.core.app.ActivityCompat;
 
 
-import nl.bravobit.ffmpeg.ExecuteBinaryResponseHandler;
-import nl.bravobit.ffmpeg.FFmpeg;
 import omrecorder.AudioChunk;
 import omrecorder.AudioRecordConfig;
 import omrecorder.OmRecorder;
@@ -81,6 +81,8 @@ import com.tonyodev.fetch2.Error;
 import com.tonyodev.fetch2core.DownloadBlock;
 import com.tonyodev.fetch2.Request;
 
+import static com.arthenica.mobileffmpeg.Config.RETURN_CODE_CANCEL;
+import static com.arthenica.mobileffmpeg.Config.RETURN_CODE_SUCCESS;
 
 
 public class CDVRecorder extends CordovaPlugin {
@@ -519,37 +521,22 @@ public class CDVRecorder extends CordovaPlugin {
         Deferred deferred = new DeferredObject();
         Promise promise = deferred.promise();
 
-        FFmpeg ffmpeg = FFmpeg.getInstance(cordova.getContext());
-        if (ffmpeg.isSupported()) {
-            ffmpeg.execute(new String[]{"-y", "-i", inputFile.getAbsolutePath(), outputFile.getAbsolutePath()}, new ExecuteBinaryResponseHandler() {
-                @Override
-                public void onStart() {
-                    LOG.v(TAG, "start");
-                }
 
-                @Override
-                public void onProgress(String message) {
-                    LOG.v(TAG, message);
-                }
 
-                @Override
-                public void onFailure(String message) {
-                    LOG.v(TAG, message);
+        long executionId = FFmpeg.executeAsync("-y -i " + inputFile.getAbsolutePath() + " " + outputFile.getAbsolutePath(), new ExecuteCallback() {
 
-                }
-
-                @Override
-                public void onSuccess(String message) {
-                    LOG.v(TAG, message);
-                }
-
-                @Override
-                public void onFinish() {
+            @Override
+            public void apply(final long executionId, final int returnCode) {
+                if (returnCode == RETURN_CODE_SUCCESS) {
                     LOG.v(TAG, "finish");
                     deferred.resolve(null);
+                } else if (returnCode == RETURN_CODE_CANCEL) {
+                    LOG.v(TAG, "Async command execution cancelled by user.");
+                } else {
+                    LOG.v(TAG, String.format("Async command execution failed with returnCode=%d.", returnCode));
                 }
-            });
-        }
+            }
+        });
 
         return promise;
     }
@@ -594,37 +581,20 @@ public class CDVRecorder extends CordovaPlugin {
         String outputPath = outputDir.getAbsolutePath();
         commands.add(outputPath);
 
-        String[] command = commands.toArray(new String[commands.size()]);
+        String command = "";
+        for (String str: commands) {
+            command += str + " ";
+        }
 
         Deferred deferred = new DeferredObject();
         Promise promise = deferred.promise();
 
-        FFmpeg ffmpeg = FFmpeg.getInstance(cordova.getContext());
-        if (ffmpeg.isSupported()) {
-            ffmpeg.execute(command, new ExecuteBinaryResponseHandler() {
-                @Override
-                public void onStart() {
-                    LOG.v(TAG, "start");
-                }
 
-                @Override
-                public void onProgress(String message) {
-                    LOG.v(TAG, message);
-                }
+        long executionId = FFmpeg.executeAsync(command, new ExecuteCallback() {
 
-                @Override
-                public void onFailure(String message) {
-                    LOG.v(TAG, message);
-
-                }
-
-                @Override
-                public void onSuccess(String message) {
-                    LOG.v(TAG, message);
-                }
-
-                @Override
-                public void onFinish() {
+            @Override
+            public void apply(final long executionId, final int returnCode) {
+                if (returnCode == RETURN_CODE_SUCCESS) {
                     LOG.v(TAG, "finish");
 
                     // temp-merged -> merged
@@ -645,9 +615,13 @@ public class CDVRecorder extends CordovaPlugin {
                     sequences = new ArrayList<File>();
 
                     deferred.resolve(newMergedFile);
+                } else if (returnCode == RETURN_CODE_CANCEL) {
+                    LOG.v(TAG, "Async command execution cancelled by user.");
+                } else {
+                    LOG.v(TAG, String.format("Async command execution failed with returnCode=%d.", returnCode));
                 }
-            });
-        }
+            }
+        });
 
         return promise;
     }
@@ -768,33 +742,13 @@ public class CDVRecorder extends CordovaPlugin {
 
 
         String[] command = commands.toArray(new String[commands.size()]);
-        FFmpeg ffmpeg = FFmpeg.getInstance(cordova.getContext());
-        if (ffmpeg.isSupported()) {
-            ffmpeg.execute(command, new ExecuteBinaryResponseHandler() {
-                @Override
-                public void onStart() {
-                    LOG.v(TAG, "start");
-                }
 
-                @Override
-                public void onProgress(String message) {
-                    LOG.v(TAG, message);
-                }
 
-                @Override
-                public void onFailure(String message) {
-                    LOG.v(TAG, message);
+        long executionId = FFmpeg.executeAsync(command, new ExecuteCallback() {
 
-                }
-
-                @Override
-                public void onSuccess(String message) {
-                    LOG.v(TAG, message);
-                }
-
-                @Override
-                public void onFinish() {
-
+            @Override
+            public void apply(final long executionId, final int returnCode) {
+                if (returnCode == RETURN_CODE_SUCCESS) {
                     // temp-merged -> merged
                     if (mergedFile.exists()) {
                         mergedFile.delete();
@@ -819,11 +773,13 @@ public class CDVRecorder extends CordovaPlugin {
                     } catch (Exception e) {
                         callbackContext.error("error on spliting");
                     }
-
-
+                } else if (returnCode == RETURN_CODE_CANCEL) {
+                    LOG.v(TAG, "Async command execution cancelled by user.");
+                } else {
+                    LOG.v(TAG, String.format("Async command execution failed with returnCode=%d.", returnCode));
                 }
-            });
-        }
+            }
+        });
     }
 
     private void importAudio(final Activity activity, final CallbackContext callbackContext, String audioPath) {

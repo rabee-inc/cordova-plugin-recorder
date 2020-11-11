@@ -44,7 +44,8 @@
     <config-file target="AndroidManifest.xml" parent="/manifest">
       <uses-permission android:name="android.permission.RECORD_AUDIO" />
     </config-file>
-    
+
+    <framework src="com.arthenica:mobile-ffmpeg-full:4.4" />
     <source-file src="src/android/CDVRecorder.java" target-dir="src/jp/rabee/recorder" />
     <source-file src="src/android/CDVRecorderBgm.java" target-dir="src/jp/rabee/recorder" />
     <source-file src="src/android/WavFile.java" target-dir="src/jp/rabee/recorder" />
