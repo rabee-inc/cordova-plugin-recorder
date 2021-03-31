@@ -702,6 +702,67 @@ import Alamofire
         try bufferData.write(to: pcmBufferPath)
         return pcmBufferPath
     }
+    // 挿入 (間に録音)
+    @objc func splitAndStart(_ command: CDVInvokedUrlCommand) {
+        guard let splitSeconds = command.argument(at: 0) as? NSNumber else {
+            let result = CDVPluginResult(
+                status: CDVCommandStatus_ERROR,
+                messageAs: ErrorCode.argumentError.toDictionary(message: "[recorder: getAudio] First argument required Number.")
+                )
+            self.commandDelegate.send(result, callbackId: command.callbackId)
+            return
+        }
+        
+        // 既にスタートしてたら エラーを返す
+        if isRecording {
+            self.cordovaResultError(command, message: "already starting")
+            return
+        }
+        
+        // joined.wav を 0 ~ splitSeconds と splitSeconds ~ 最後まで で2ファイルに分ける
+        let joinedURL = URL(fileURLWithPath: joinedPath)
+        let joinedAsset = AVURLAsset(url: joinedURL)
+        // A, B, C を結合順として定義する
+        // B は録音先のパス
+        let pathA = audioListDir + "/1.wav"
+        let pathB = audioListDir + "/2.wav"
+        let pathC = audioListDir + "/3.wav"
+        
+        do {
+            removeAudios()
+            try trim(input: joinedPath, output: pathA, start: 0, end: splitSeconds.doubleValue)
+            try trim(input: joinedPath, output: pathC, start: splitSeconds.doubleValue, end: joinedAsset.duration.seconds)
+            
+            if FileManager.default.fileExists(atPath: joinedPath) {
+                try! FileManager.default.removeItem(atPath: joinedPath)
+            }
+            
+            // 途中でキルされた場合に音声がバグらないようにちゃんと終了処理をする
+            let notificationCenter = NotificationCenter.default
+            notificationCenter.addObserver(
+                self,
+                selector: #selector(CDVRecorder.pauseRecordForNotification(notification:)),
+                name: NSNotification.Name.UIApplicationWillTerminate,
+                object: nil)
+            
+            startRecord(path: URL(string: pathB)!)
+            
+            isRecording = true
+            
+            // 問題なければ result
+            let resultData = ["sampleRate": getInputFormat()?.sampleRate]
+            let result = CDVPluginResult(status: CDVCommandStatus_OK, messageAs: resultData as [AnyHashable : Any])
+            self.commandDelegate.send(result, callbackId:command.callbackId)
+        } catch let err {
+            print(err)
+            let result = CDVPluginResult(
+                status: CDVCommandStatus_ERROR,
+                messageAs: err.localizedDescription
+            )
+            self.commandDelegate.send(result, callbackId: command.callbackId)
+            return
+        }
+    }
     
     // 指定した範囲の音声を生成する
     private func trim(input: String, output: String, start: Double, end: Double) throws {
