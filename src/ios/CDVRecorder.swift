@@ -704,7 +704,7 @@ import Alamofire
     }
     
     // 指定した範囲の音声を生成する
-    private func trim(input: String, output: String, start: Float, end: Float) throws {
+    private func trim(input: String, output: String, start: Double, end: Double) throws {
         // Audio Asset 作成
         let audioURL = URL(fileURLWithPath: input)
         let audioAsset = AVURLAsset(url: audioURL)
@@ -721,8 +721,8 @@ import Alamofire
         }
 
         let timescale = Int32(NSEC_PER_SEC)
-        let start = CMTimeMakeWithSeconds(Float64(start), timescale)
-        let end = CMTimeMakeWithSeconds(Float64(end), timescale)
+        let start = CMTimeMakeWithSeconds(start, timescale)
+        let end = CMTimeMakeWithSeconds(end, timescale)
         let range = CMTimeRangeMake(start, end)
         try audioCompositionTrack.insertTimeRange(range, of: audioAssetTrack!, at: kCMTimeZero)
         // 一時保存ファイルとして export 後, もとのファイルを削除してリネーム
@@ -786,7 +786,7 @@ import Alamofire
             return
         }
         do {
-            try trim(input: joinedPath, output: joinedPath, start: params[0].floatValue, end: params[1].floatValue)
+            try trim(input: joinedPath, output: joinedPath, start: params[0].doubleValue, end: params[1].doubleValue)
         } catch let err {
             self.cordovaResultError(command, message: err.localizedDescription)
             return
