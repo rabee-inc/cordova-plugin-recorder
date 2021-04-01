@@ -854,6 +854,71 @@ import Alamofire
         self.commandDelegate.send(result, callbackId: command.callbackId)
     }
     
+    // 途中を切り取る
+    @objc func cut(_ command: CDVInvokedUrlCommand) {
+        guard var params = command.argument(at: 0) as? [[NSNumber]] else {
+            let result = CDVPluginResult(
+                status: CDVCommandStatus_ERROR,
+                messageAs: ErrorCode.argumentError.toDictionary(message: "[recorder: cut] First argument required. Please specify [[number, number], ...]")
+                )
+            self.commandDelegate.send(result, callbackId: command.callbackId)
+            return
+        }
+        if params.count == 0 {
+            let result = CDVPluginResult(
+                status: CDVCommandStatus_ERROR,
+                messageAs: ErrorCode.argumentError.toDictionary(message: "[recorder: cut] First argument required. Please specify [[number, number], ...]")
+                )
+            self.commandDelegate.send(result, callbackId: command.callbackId)
+            return
+        }
+        var trimParams: [[Double]] = [[0, 0]]
+        params.sort { $0[0].doubleValue < $1[0].doubleValue }
+        var i = 1
+        for param in params {
+            let start = param[0].doubleValue
+            let end = param[1].doubleValue
+            trimParams[i - 1][1] = start
+            trimParams.append([end, end])
+            i = i + 1
+        }
+        trimParams[i - 1][1] = AVURLAsset(url: URL(fileURLWithPath: joinedPath)).duration.seconds
+        i = 1
+        do {
+            removeAudios()
+            for param in trimParams {
+                if (param[0] != param[1]) {
+                    try trim(input: joinedPath, output: audioListDir + "/\(String(format: "%08d", i)).wav", start: param[0], end: param[1])
+                    i = i + 1
+                }
+            }
+            if FileManager.default.fileExists(atPath: joinedPath) {
+                try FileManager.default.removeItem(atPath: joinedPath)
+            }
+        }
+        catch let err {
+            print(err)
+            let result = CDVPluginResult(
+                status: CDVCommandStatus_ERROR,
+                messageAs: err.localizedDescription
+                )
+            self.commandDelegate.send(result, callbackId: command.callbackId)
+            return
+        }
+        let err = generateJoinedAudio()
+        if err != nil {
+            let result = CDVPluginResult(
+                status: CDVCommandStatus_ERROR,
+                messageAs: err
+                )
+            self.commandDelegate.send(result, callbackId: command.callbackId)
+        }
+        else {
+            let result = CDVPluginResult(status: CDVCommandStatus_OK, messageAs: getJoinedAudioData())
+            self.commandDelegate.send(result, callbackId: command.callbackId)
+        }
+    }
+    
     @objc func exportWithCompression(_ command: CDVInvokedUrlCommand) {
         commandDelegate.run(inBackground: { [weak self] in
             guard let self = self else { return }

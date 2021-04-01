@@ -58,6 +58,7 @@ const recorder = {
   getWaveFormByFile: (params) => createAction('getWaveFormByFile', params),
   initSettings: (params) => createAction('initSettings', params),
   exportWithCompression: (params) => createAction('exportWithCompression', params),
+  cut: (params) => createAction('cut', params),
   trim: (start, end) => createAction('trim', [start, end]),
   splitAndStart: (params) => createAction('splitAndStart', params),
   getAudio: (params) => createAction('getAudio', params),
