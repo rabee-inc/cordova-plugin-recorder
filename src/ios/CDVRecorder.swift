@@ -782,9 +782,7 @@ import Alamofire
         }
 
         let timescale = Int32(NSEC_PER_SEC)
-        let start = CMTimeMakeWithSeconds(start, timescale)
-        let end = CMTimeMakeWithSeconds(end, timescale)
-        let range = CMTimeRangeMake(start, end)
+        let range = CMTimeRangeMake(CMTimeMakeWithSeconds(start, timescale), CMTimeMakeWithSeconds(end - start, timescale))
         try audioCompositionTrack.insertTimeRange(range, of: audioAssetTrack!, at: kCMTimeZero)
         // 一時保存ファイルとして export 後, もとのファイルを削除してリネーム
         let cutFilePath = URL(fileURLWithPath: tempWavPath)
