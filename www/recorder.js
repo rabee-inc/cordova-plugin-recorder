@@ -58,11 +58,15 @@ const recorder = {
   getWaveFormByFile: (params) => createAction('getWaveFormByFile', params),
   initSettings: (params) => createAction('initSettings', params),
   exportWithCompression: (params) => createAction('exportWithCompression', params),
-  split: (params) => createAction('split', params),
+  cut: (params) => createAction('cut', params),
+  trim: (start, end) => createAction('trim', [start, end]),
+  splitAndStart: (params) => createAction('splitAndStart', params),
   getAudio: (params) => createAction('getAudio', params),
   getSampleRate: (params) => createAction('getSampleRate', params),
   importAudio: (params) => createAction('importAudio', params),
   getMicPermission: (params) => createAction('getMicPermission', params),
+  canRestore: (params) => createAction('canRestore', params),
+  restore: (params) => createAction('restore', params),
   // イベントリスナー系
   onPushBuffer: (callback, onFail, param) => {
     return exec(callback, onFail, "Recorder", "onPushBuffer", [param]);
