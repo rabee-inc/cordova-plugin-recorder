@@ -737,8 +737,16 @@ import Alamofire
         
         do {
             removeAudios()
-            try trim(input: joinedPath, output: pathA, start: 0, end: splitSeconds.doubleValue)
-            try trim(input: joinedPath, output: pathC, start: splitSeconds.doubleValue, end: joinedAsset.duration.seconds)
+            // 0.05 未満のときは trim せずにファイルの移動だけする
+            if splitSeconds.doubleValue <= 0.05 {
+                if FileManager.default.fileExists(atPath: joinedPath) {
+                    try! FileManager.default.moveItem(atPath: joinedPath, toPath: pathC)
+                }
+            }
+            else {
+                try trim(input: joinedPath, output: pathA, start: 0, end: splitSeconds.doubleValue)
+                try trim(input: joinedPath, output: pathC, start: splitSeconds.doubleValue, end: joinedAsset.duration.seconds)
+            }
             
             if FileManager.default.fileExists(atPath: joinedPath) {
                 try! FileManager.default.removeItem(atPath: joinedPath)
