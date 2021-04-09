@@ -779,6 +779,90 @@ import Alamofire
         }
     }
     
+    // 選択範囲の音量を変更
+    @objc func changeDecibel(_ command: CDVInvokedUrlCommand) {
+        guard let params = command.argument(at: 0) as? [NSNumber] else {
+            let result = CDVPluginResult(
+                status: CDVCommandStatus_ERROR,
+                messageAs: ErrorCode.argumentError.toDictionary(message: "First argument required. Please specify [number, ...]")
+                )
+            self.commandDelegate.send(result, callbackId: command.callbackId)
+            return
+        }
+        if params.count < 1 {
+            let result = CDVPluginResult(
+                status: CDVCommandStatus_ERROR,
+                messageAs: ErrorCode.argumentError.toDictionary(message: "First argument required. Please specify [number, ...]")
+                )
+            self.commandDelegate.send(result, callbackId: command.callbackId)
+            return
+        }
+        
+        let db = params[0].doubleValue
+        let outputPath = joinedPath
+        let targetPath = joinedPath
+        let audio = AVURLAsset(url: URL(fileURLWithPath: targetPath))
+        removeAudios()
+        // A, B, C を結合順として定義する
+        // B は録音先のパス
+        let pathA = audioListDir + "/1.wav"
+        let pathB = audioListDir + "/2.wav"
+        let pathC = audioListDir + "/3.wav"
+        
+        if params.count <= 1 {
+            do {
+                try changeDecibel(input: targetPath, output: outputPath, db: db)
+            }
+            catch let err {
+                sendCordovaError(command: command, err: err)
+                return
+            }
+        }
+        else {
+            // 切り取りする
+            let start = max(0, params[1].doubleValue)
+            let end = min(params[2].doubleValue, audio.duration.seconds)
+        
+            do {
+                if start == end {
+                    throw NSError(domain: "選択範囲が狭すぎます", code: -1, userInfo: nil)
+                }
+                try trim(input: targetPath, output: pathB, start: start, end: end)
+            }
+            catch let err {
+                sendCordovaError(command: command, err: err)
+                return
+            }
+            
+            do {
+                // 範囲の音量を上げる
+                try changeDecibel(input: pathB, output: pathB, db: db)
+                // 範囲より前側を切り取り
+                // start が 0.05 以上のときだけ trim
+                if start >= 0.05 {
+                    try trim(input: targetPath, output: pathA, start: 0, end: start)
+                }
+                // 範囲より後側を切り取り
+                if end <= (audio.duration.seconds - 0.05) {
+                    try trim(input: targetPath, output: pathC, start: end, end: audio.duration.seconds)
+                }
+                try FileManager.default.removeItem(atPath: joinedPath)
+                // 音声を結合
+                let err = generateJoinedAudio()
+                if err != nil {
+                    throw NSError(domain: err!, code: -1, userInfo: nil)
+                }
+            }
+            catch let err {
+                sendCordovaError(command: command, err: err)
+                return
+            }
+        }
+        let result = CDVPluginResult(status: CDVCommandStatus_OK, messageAs: getJoinedAudioData())
+        self.commandDelegate.send(result, callbackId: command.callbackId)
+        
+    }
+    
     // 指定した範囲の音声を生成する
     private func trim(input: String, output: String, start: Double, end: Double) throws {
         // Audio Asset 作成

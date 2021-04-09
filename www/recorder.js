@@ -62,6 +62,7 @@ const recorder = {
   trim: (start, end) => createAction('trim', [start, end]),
   splitAndStart: (params) => createAction('splitAndStart', params),
   previewDecibelChanged: (...params) => createAction('previewDecibelChanged', params),
+  changeDecibel: (...params) => createAction('changeDecibel', params),
   getAudio: (params) => createAction('getAudio', params),
   getSampleRate: (params) => createAction('getSampleRate', params),
   importAudio: (params) => createAction('importAudio', params),
