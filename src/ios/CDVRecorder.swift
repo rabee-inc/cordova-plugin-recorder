@@ -1039,12 +1039,14 @@ import Alamofire
         let db = params[0].doubleValue
         let outputPath = tempAudioListDir + "/preview.wav"
         var targetPath = joinedPath
+        let audio = AVURLAsset(url: URL(fileURLWithPath: targetPath))
         removeTempAudios()
         
         if params.count > 1 {
             // 切り取りする
-            let start = params[1].doubleValue
-            let end = params[2].doubleValue
+            let start = max(0, params[1].doubleValue)
+            let end = min(params[2].doubleValue, audio.duration.seconds)
+        
             do {
                 if start == end {
                     throw NSError(domain: "選択範囲が狭すぎます", code: -1, userInfo: nil)
