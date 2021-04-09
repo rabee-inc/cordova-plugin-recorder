@@ -798,6 +798,7 @@ import Alamofire
 
         let timescale = Int32(NSEC_PER_SEC)
         let range = CMTimeRangeMake(CMTimeMakeWithSeconds(start, timescale), CMTimeMakeWithSeconds(end - start, timescale))
+        
         try audioCompositionTrack.insertTimeRange(range, of: audioAssetTrack!, at: kCMTimeZero)
         // 一時保存ファイルとして export 後, もとのファイルを削除してリネーム
         let cutFilePath = URL(fileURLWithPath: tempWavPath)
@@ -939,7 +940,7 @@ import Alamofire
         let audioEngine = AVAudioEngine()
         
         let inputURL = URL(fileURLWithPath: input)
-        let outputURL = URL(fileURLWithPath: output)
+        let outputURL = URL(fileURLWithPath: tempWavPath)
         let audioFile = try AVAudioFile(forReading: inputURL)
         let format = audioFile.processingFormat
         let playerNode = AVAudioPlayerNode()
@@ -1009,6 +1010,11 @@ import Alamofire
         // Stop the player node and engine.
         playerNode.stop()
         audioEngine.stop()
+        
+        if FileManager.default.fileExists(atPath: output) {
+            try FileManager.default.removeItem(atPath: output)
+        }
+        try FileManager.default.moveItem(atPath: tempWavPath, toPath: output)
     }
     
     // preview 用に生成した音声を返す
@@ -1039,15 +1045,16 @@ import Alamofire
             // 切り取りする
             let start = params[1].doubleValue
             let end = params[2].doubleValue
-            if start != end {
-                do {
-                    targetPath = tempAudioListDir + "/preview_trim.wav"
-                    try trim(input: joinedPath, output: targetPath, start: start, end: end)
+            do {
+                if start == end {
+                    throw NSError(domain: "選択範囲が狭すぎます", code: -1, userInfo: nil)
                 }
-                catch let err {
-                    sendCordovaError(command: command, err: err)
-                    return
-                }
+                targetPath = tempAudioListDir + "/preview_trim.wav"
+                try trim(input: joinedPath, output: targetPath, start: start, end: end)
+            }
+            catch let err {
+                sendCordovaError(command: command, err: err)
+                return
             }
         }
         do {
@@ -1231,6 +1238,7 @@ import Alamofire
             
             // マイクのフォーマット
             let micFormat = self.getInputFormat()
+            
             // audio file
             let audioFile = try! AVAudioFile(forWriting: path, settings: self.getInputSettings()!)
             
@@ -1326,7 +1334,6 @@ import Alamofire
         let composition = AVMutableComposition()
         let track = composition.addMutableTrack(withMediaType: AVMediaType.audio, preferredTrackID: kCMPersistentTrackID_Invalid)
         let semaphore = DispatchSemaphore(value: 0)
-        
         
         let joinedFilePath = URL(fileURLWithPath: recordingDir + "/\(folderID)/joined/joined.wav", isDirectory: false)
         let isJoinedFile = FileManager.default.fileExists(atPath: joinedFilePath.path);
