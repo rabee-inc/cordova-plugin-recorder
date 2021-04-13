@@ -5,7 +5,8 @@ import Alamofire
 
 @objc(CDVRecorder) class CDVRecorder : CDVPlugin, AVAudioPlayerDelegate {
     var bufferSize = 4096
-
+    // メモリからローカル変数が消えるバグを回避するための変数
+    var eq: AVAudioUnitEQ! = nil
     var engine: AVAudioEngine?
     // 旧仕様のフォルダ。今後は使わない
     var recordingDir = ""
@@ -284,6 +285,12 @@ import Alamofire
             try! FileManager.default.removeItem(atPath: "\(tempAudioListDir)/\(file)")
         }
     }
+    
+    private func removeTempWav() {
+        if FileManager.default.fileExists(atPath: tempWavPath) {
+            try! FileManager.default.removeItem(atPath: tempWavPath)
+        }
+    }
 
     // pause recording
     @objc func pause(_ command: CDVInvokedUrlCommand) {
@@ -455,7 +462,7 @@ import Alamofire
         let composition = AVMutableComposition()
         let track = composition.addMutableTrack(withMediaType: AVMediaType.audio, preferredTrackID: kCMPersistentTrackID_Invalid)
         let semaphore = DispatchSemaphore(value: 0)
-        
+        removeTempWav()
         let concatFileSaveURL = URL(fileURLWithPath: tempWavPath)
         let joinedURL = URL(fileURLWithPath: outputPath)
         
@@ -809,9 +816,19 @@ import Alamofire
         let pathB = audioListDir + "/2.wav"
         let pathC = audioListDir + "/3.wav"
         
+        var audioData: [String : Any]? = nil
+        
         if params.count <= 1 {
             do {
                 try changeDecibel(input: targetPath, output: outputPath, db: db)
+                audioData = getJoinedAudioData()
+                let full_audio: [String: Any] = audioData?["full_audio"] as! [String : Any]
+                let duration: Double = full_audio["duration"] as! Double
+                audioData?.updateValue([
+                    "duration": duration,
+                    "start" : 0,
+                    "end": duration,
+                ], forKey: "updated_audio")
             }
             catch let err {
                 sendCordovaError(command: command, err: err)
@@ -847,18 +864,28 @@ import Alamofire
                     try trim(input: targetPath, output: pathC, start: end, end: audio.duration.seconds)
                 }
                 try FileManager.default.removeItem(atPath: joinedPath)
+                
+                let updatedAudioAsset = AVURLAsset(url: URL(fileURLWithPath: pathB))
+                let duration = updatedAudioAsset.duration.seconds
+                
                 // 音声を結合
                 let err = generateJoinedAudio()
                 if err != nil {
                     throw NSError(domain: err!, code: -1, userInfo: nil)
                 }
+                audioData = getJoinedAudioData()
+                audioData?.updateValue([
+                    "duration": duration,
+                    "start": start,
+                    "end": start + duration,
+                ], forKey: "updated_audio")
             }
             catch let err {
                 sendCordovaError(command: command, err: err)
                 return
             }
         }
-        let result = CDVPluginResult(status: CDVCommandStatus_OK, messageAs: getJoinedAudioData())
+        let result = CDVPluginResult(status: CDVCommandStatus_OK, messageAs: audioData)
         self.commandDelegate.send(result, callbackId: command.callbackId)
         
     }
@@ -884,6 +911,7 @@ import Alamofire
         let range = CMTimeRangeMake(CMTimeMakeWithSeconds(start, timescale), CMTimeMakeWithSeconds(end - start, timescale))
         
         try audioCompositionTrack.insertTimeRange(range, of: audioAssetTrack!, at: kCMTimeZero)
+        removeTempWav()
         // 一時保存ファイルとして export 後, もとのファイルを削除してリネーム
         let cutFilePath = URL(fileURLWithPath: tempWavPath)
         let outputPath = URL(fileURLWithPath: output)
@@ -1024,14 +1052,15 @@ import Alamofire
         let audioEngine = AVAudioEngine()
         
         let inputURL = URL(fileURLWithPath: input)
+        removeTempWav()
         let outputURL = URL(fileURLWithPath: tempWavPath)
         let audioFile = try AVAudioFile(forReading: inputURL)
         let format = audioFile.processingFormat
         let playerNode = AVAudioPlayerNode()
-        // イコライザー
-        let eq = AVAudioUnitEQ()
+        self.eq = AVAudioUnitEQ()
+        
         // 増幅させる db を設定
-        eq.globalGain = Float(db)
+        eq?.globalGain = Float(db)
         
         audioEngine.attach(playerNode)
         audioEngine.attach(eq)
@@ -1046,7 +1075,7 @@ import Alamofire
         let maxFrames: AVAudioFrameCount = 4096
         try audioEngine.enableManualRenderingMode(.offline, format: format, maximumFrameCount: maxFrames)
         
-
+        
         // 書き込み先ファイルをつくる
         let outputFile = try AVAudioFile(forWriting: outputURL, settings: audioFile.fileFormat.settings)
         
@@ -1094,6 +1123,7 @@ import Alamofire
         // Stop the player node and engine.
         playerNode.stop()
         audioEngine.stop()
+        self.eq = nil
         
         if FileManager.default.fileExists(atPath: output) {
             try FileManager.default.removeItem(atPath: output)
