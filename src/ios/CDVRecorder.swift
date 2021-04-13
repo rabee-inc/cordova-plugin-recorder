@@ -5,7 +5,8 @@ import Alamofire
 
 @objc(CDVRecorder) class CDVRecorder : CDVPlugin, AVAudioPlayerDelegate {
     var bufferSize = 4096
-
+    // メモリからローカル変数が消えるバグを回避するための変数
+    var eq: AVAudioUnitEQ! = nil
     var engine: AVAudioEngine?
     // 旧仕様のフォルダ。今後は使わない
     var recordingDir = ""
@@ -17,7 +18,7 @@ import Alamofire
     var joinedPath = ""
     var compressionPath = ""
     var audioListDir = ""
-    var tempAudiosDir = ""
+    var tempAudioListDir = ""
     var isRecording = false
     var pushBufferCallBackId: String?
     var changeConnectedEarPhoneStatusCallBackId: String?
@@ -107,7 +108,7 @@ import Alamofire
         joinedPath = audioDir + "/joined.wav"
         compressionPath = audioDir + "/joined.m4a"
         audioListDir = audioDir + "/audios"
-        tempAudiosDir = tempDir + "/audios"
+        tempAudioListDir = tempDir + "/audios"
         bgms = []
         do {
             try FileManager.default.createDirectory(atPath: tempDir, withIntermediateDirectories: true, attributes: nil)
@@ -122,7 +123,7 @@ import Alamofire
             print(error)
         }
         do {
-            try FileManager.default.createDirectory(atPath: tempAudiosDir, withIntermediateDirectories: true, attributes: nil)
+            try FileManager.default.createDirectory(atPath: tempAudioListDir, withIntermediateDirectories: true, attributes: nil)
         }
         catch let error {
             print(error)
@@ -275,6 +276,19 @@ import Alamofire
         let fileNames = try! FileManager.default.contentsOfDirectory(atPath: audioListDir)
         for file in fileNames {
             try! FileManager.default.removeItem(atPath: "\(audioListDir)/\(file)")
+        }
+    }
+    
+    private func removeTempAudios() {
+        let fileNames = try! FileManager.default.contentsOfDirectory(atPath: tempAudioListDir)
+        for file in fileNames {
+            try! FileManager.default.removeItem(atPath: "\(tempAudioListDir)/\(file)")
+        }
+    }
+    
+    private func removeTempWav() {
+        if FileManager.default.fileExists(atPath: tempWavPath) {
+            try! FileManager.default.removeItem(atPath: tempWavPath)
         }
     }
 
@@ -448,7 +462,7 @@ import Alamofire
         let composition = AVMutableComposition()
         let track = composition.addMutableTrack(withMediaType: AVMediaType.audio, preferredTrackID: kCMPersistentTrackID_Invalid)
         let semaphore = DispatchSemaphore(value: 0)
-        
+        removeTempWav()
         let concatFileSaveURL = URL(fileURLWithPath: tempWavPath)
         let joinedURL = URL(fileURLWithPath: outputPath)
         
@@ -730,8 +744,16 @@ import Alamofire
         
         do {
             removeAudios()
-            try trim(input: joinedPath, output: pathA, start: 0, end: splitSeconds.doubleValue)
-            try trim(input: joinedPath, output: pathC, start: splitSeconds.doubleValue, end: joinedAsset.duration.seconds)
+            // 0.05 未満のときは trim せずにファイルの移動だけする
+            if splitSeconds.doubleValue <= 0.05 {
+                if FileManager.default.fileExists(atPath: joinedPath) {
+                    try! FileManager.default.moveItem(atPath: joinedPath, toPath: pathC)
+                }
+            }
+            else {
+                try trim(input: joinedPath, output: pathA, start: 0, end: splitSeconds.doubleValue)
+                try trim(input: joinedPath, output: pathC, start: splitSeconds.doubleValue, end: joinedAsset.duration.seconds)
+            }
             
             if FileManager.default.fileExists(atPath: joinedPath) {
                 try! FileManager.default.removeItem(atPath: joinedPath)
@@ -764,6 +786,110 @@ import Alamofire
         }
     }
     
+    // 選択範囲の音量を変更
+    @objc func changeDecibel(_ command: CDVInvokedUrlCommand) {
+        guard let params = command.argument(at: 0) as? [NSNumber] else {
+            let result = CDVPluginResult(
+                status: CDVCommandStatus_ERROR,
+                messageAs: ErrorCode.argumentError.toDictionary(message: "First argument required. Please specify [number, ...]")
+                )
+            self.commandDelegate.send(result, callbackId: command.callbackId)
+            return
+        }
+        if params.count < 1 {
+            let result = CDVPluginResult(
+                status: CDVCommandStatus_ERROR,
+                messageAs: ErrorCode.argumentError.toDictionary(message: "First argument required. Please specify [number, ...]")
+                )
+            self.commandDelegate.send(result, callbackId: command.callbackId)
+            return
+        }
+        
+        let db = params[0].doubleValue
+        let outputPath = joinedPath
+        let targetPath = joinedPath
+        let audio = AVURLAsset(url: URL(fileURLWithPath: targetPath))
+        removeAudios()
+        // A, B, C を結合順として定義する
+        // B は録音先のパス
+        let pathA = audioListDir + "/1.wav"
+        let pathB = audioListDir + "/2.wav"
+        let pathC = audioListDir + "/3.wav"
+        
+        var audioData: [String : Any]? = nil
+        
+        if params.count <= 1 {
+            do {
+                try changeDecibel(input: targetPath, output: outputPath, db: db)
+                audioData = getJoinedAudioData()
+                let full_audio: [String: Any] = audioData?["full_audio"] as! [String : Any]
+                let duration: Double = full_audio["duration"] as! Double
+                audioData?.updateValue([
+                    "duration": duration,
+                    "start" : 0,
+                    "end": duration,
+                ], forKey: "updated_audio")
+            }
+            catch let err {
+                sendCordovaError(command: command, err: err)
+                return
+            }
+        }
+        else {
+            // 切り取りする
+            let start = max(0, params[1].doubleValue)
+            let end = min(params[2].doubleValue, audio.duration.seconds)
+        
+            do {
+                if start == end {
+                    throw NSError(domain: "選択範囲が狭すぎます", code: -1, userInfo: nil)
+                }
+                try trim(input: targetPath, output: pathB, start: start, end: end)
+            }
+            catch let err {
+                sendCordovaError(command: command, err: err)
+                return
+            }
+            
+            do {
+                // 範囲の音量を上げる
+                try changeDecibel(input: pathB, output: pathB, db: db)
+                // 範囲より前側を切り取り
+                // start が 0.05 以上のときだけ trim
+                if start >= 0.05 {
+                    try trim(input: targetPath, output: pathA, start: 0, end: start)
+                }
+                // 範囲より後側を切り取り
+                if end <= (audio.duration.seconds - 0.05) {
+                    try trim(input: targetPath, output: pathC, start: end, end: audio.duration.seconds)
+                }
+                try FileManager.default.removeItem(atPath: joinedPath)
+                
+                let updatedAudioAsset = AVURLAsset(url: URL(fileURLWithPath: pathB))
+                let duration = updatedAudioAsset.duration.seconds
+                
+                // 音声を結合
+                let err = generateJoinedAudio()
+                if err != nil {
+                    throw NSError(domain: err!, code: -1, userInfo: nil)
+                }
+                audioData = getJoinedAudioData()
+                audioData?.updateValue([
+                    "duration": duration,
+                    "start": start,
+                    "end": start + duration,
+                ], forKey: "updated_audio")
+            }
+            catch let err {
+                sendCordovaError(command: command, err: err)
+                return
+            }
+        }
+        let result = CDVPluginResult(status: CDVCommandStatus_OK, messageAs: audioData)
+        self.commandDelegate.send(result, callbackId: command.callbackId)
+        
+    }
+    
     // 指定した範囲の音声を生成する
     private func trim(input: String, output: String, start: Double, end: Double) throws {
         // Audio Asset 作成
@@ -783,7 +909,9 @@ import Alamofire
 
         let timescale = Int32(NSEC_PER_SEC)
         let range = CMTimeRangeMake(CMTimeMakeWithSeconds(start, timescale), CMTimeMakeWithSeconds(end - start, timescale))
+        
         try audioCompositionTrack.insertTimeRange(range, of: audioAssetTrack!, at: kCMTimeZero)
+        removeTempWav()
         // 一時保存ファイルとして export 後, もとのファイルを削除してリネーム
         let cutFilePath = URL(fileURLWithPath: tempWavPath)
         let outputPath = URL(fileURLWithPath: output)
@@ -917,6 +1045,143 @@ import Alamofire
             let result = CDVPluginResult(status: CDVCommandStatus_OK, messageAs: getJoinedAudioData())
             self.commandDelegate.send(result, callbackId: command.callbackId)
         }
+    }
+    
+    
+    private func changeDecibel(input: String, output: String, db: Double) throws {
+        let audioEngine = AVAudioEngine()
+        
+        let inputURL = URL(fileURLWithPath: input)
+        removeTempWav()
+        let outputURL = URL(fileURLWithPath: tempWavPath)
+        let audioFile = try AVAudioFile(forReading: inputURL)
+        let format = audioFile.processingFormat
+        let playerNode = AVAudioPlayerNode()
+        self.eq = AVAudioUnitEQ()
+        
+        // 増幅させる db を設定
+        eq?.globalGain = Float(db)
+        
+        audioEngine.attach(playerNode)
+        audioEngine.attach(eq)
+        
+        // 接続 (player → eq → engine.outputNode)
+        audioEngine.connect(playerNode, to: eq, format: format)
+        audioEngine.connect(eq, to: audioEngine.outputNode, format: format)
+        
+        playerNode.scheduleFile(audioFile, at: nil)
+        
+        // オフラインレンダリングを有効化 (音声を再生せずにファイルに出力可能にする)
+        let maxFrames: AVAudioFrameCount = 4096
+        try audioEngine.enableManualRenderingMode(.offline, format: format, maximumFrameCount: maxFrames)
+        
+        
+        // 書き込み先ファイルをつくる
+        let outputFile = try AVAudioFile(forWriting: outputURL, settings: audioFile.fileFormat.settings)
+        
+        // 出力を受け取るPCMBuffer用意
+        // The output buffer to which the engine renders the processed data.
+        let buffer = AVAudioPCMBuffer(pcmFormat: audioEngine.manualRenderingFormat, frameCapacity: audioEngine.manualRenderingMaximumFrameCount)!
+
+        
+        // 再生 (オフライン)
+        try audioEngine.start()
+        playerNode.play()
+        
+        
+        while audioEngine.manualRenderingSampleTime < audioFile.length {
+            do {
+                let frameCount = audioFile.length - audioEngine.manualRenderingSampleTime
+                let framesToRender = min(AVAudioFrameCount(frameCount), buffer.frameCapacity)
+                
+                let status = try audioEngine.renderOffline(framesToRender, to: buffer)
+                
+                switch status {
+                    
+                case .success:
+                    // The data rendered successfully. Write it to the output file.
+                    try outputFile.write(from: buffer)
+                    
+                case .insufficientDataFromInputNode:
+                    // Applicable only when using the input node as one of the sources.
+                    break
+                    
+                case .cannotDoInCurrentContext:
+                    // The engine couldn't render in the current render call.
+                    // Retry in the next iteration.
+                    break
+                    
+                case .error:
+                    // An error occurred while rendering the audio.
+                    fatalError("The manual rendering failed.")
+                }
+            } catch {
+                fatalError("The manual rendering failed: \(error).")
+            }
+        }
+
+        // Stop the player node and engine.
+        playerNode.stop()
+        audioEngine.stop()
+        self.eq = nil
+        
+        if FileManager.default.fileExists(atPath: output) {
+            try FileManager.default.removeItem(atPath: output)
+        }
+        try FileManager.default.moveItem(atPath: tempWavPath, toPath: output)
+    }
+    
+    // preview 用に生成した音声を返す
+    @objc func previewDecibelChanged(_ command: CDVInvokedUrlCommand) {
+        guard let params = command.argument(at: 0) as? [NSNumber] else {
+            let result = CDVPluginResult(
+                status: CDVCommandStatus_ERROR,
+                messageAs: ErrorCode.argumentError.toDictionary(message: "First argument required. Please specify [number, ...]")
+                )
+            self.commandDelegate.send(result, callbackId: command.callbackId)
+            return
+        }
+        if params.count < 1 {
+            let result = CDVPluginResult(
+                status: CDVCommandStatus_ERROR,
+                messageAs: ErrorCode.argumentError.toDictionary(message: "First argument required. Please specify [number, ...]")
+                )
+            self.commandDelegate.send(result, callbackId: command.callbackId)
+            return
+        }
+        
+        let db = params[0].doubleValue
+        let outputPath = tempAudioListDir + "/preview.wav"
+        var targetPath = joinedPath
+        let audio = AVURLAsset(url: URL(fileURLWithPath: targetPath))
+        removeTempAudios()
+        
+        if params.count > 1 {
+            // 切り取りする
+            let start = max(0, params[1].doubleValue)
+            let end = min(params[2].doubleValue, audio.duration.seconds)
+        
+            do {
+                if start == end {
+                    throw NSError(domain: "選択範囲が狭すぎます", code: -1, userInfo: nil)
+                }
+                targetPath = tempAudioListDir + "/preview_trim.wav"
+                try trim(input: joinedPath, output: targetPath, start: start, end: end)
+            }
+            catch let err {
+                sendCordovaError(command: command, err: err)
+                return
+            }
+        }
+        do {
+            try changeDecibel(input: targetPath, output: outputPath, db: db)
+        }
+        catch let err {
+            sendCordovaError(command: command, err: err)
+            return
+        }
+        let result = CDVPluginResult(status: CDVCommandStatus_OK, messageAs: URL(fileURLWithPath: outputPath).absoluteString)
+        self.commandDelegate.send(result, callbackId: command.callbackId)
     }
     
     @objc func exportWithCompression(_ command: CDVInvokedUrlCommand) {
@@ -1068,6 +1333,15 @@ import Alamofire
         return maxVolume
     }
     
+    private func sendCordovaError(command: CDVInvokedUrlCommand, err: Error) {
+        print(err)
+        let result = CDVPluginResult(
+            status: CDVCommandStatus_ERROR,
+            messageAs: err.localizedDescription
+        )
+        self.commandDelegate.send(result, callbackId: command.callbackId)
+    }
+    
     // start private func
     private func startRecord(path: URL) {
         do {
@@ -1080,6 +1354,7 @@ import Alamofire
             
             // マイクのフォーマット
             let micFormat = self.getInputFormat()
+            
             // audio file
             let audioFile = try! AVAudioFile(forWriting: path, settings: self.getInputSettings()!)
             
@@ -1175,7 +1450,6 @@ import Alamofire
         let composition = AVMutableComposition()
         let track = composition.addMutableTrack(withMediaType: AVMediaType.audio, preferredTrackID: kCMPersistentTrackID_Invalid)
         let semaphore = DispatchSemaphore(value: 0)
-        
         
         let joinedFilePath = URL(fileURLWithPath: recordingDir + "/\(folderID)/joined/joined.wav", isDirectory: false)
         let isJoinedFile = FileManager.default.fileExists(atPath: joinedFilePath.path);
