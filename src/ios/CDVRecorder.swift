@@ -19,6 +19,10 @@ import Alamofire
     var compressionPath = ""
     var audioListDir = ""
     var tempAudioListDir = ""
+    
+    var effectAudioDir = ""
+    var changeDecibelDir = ""
+    
     var isRecording = false
     var pushBufferCallBackId: String?
     var changeConnectedEarPhoneStatusCallBackId: String?
@@ -109,25 +113,19 @@ import Alamofire
         compressionPath = audioDir + "/joined.m4a"
         audioListDir = audioDir + "/audios"
         tempAudioListDir = tempDir + "/audios"
+        effectAudioDir = audioDir + "/effects"
+        changeDecibelDir = effectAudioDir + "/decibel"
         bgms = []
-        do {
-            try FileManager.default.createDirectory(atPath: tempDir, withIntermediateDirectories: true, attributes: nil)
-        }
-        catch let error {
-            print(error)
-        }
-        do {
-            try FileManager.default.createDirectory(atPath: audioListDir, withIntermediateDirectories: true, attributes: nil)
-        }
-        catch let error {
-            print(error)
-        }
-        do {
-            try FileManager.default.createDirectory(atPath: tempAudioListDir, withIntermediateDirectories: true, attributes: nil)
-        }
-        catch let error {
-            print(error)
-        }
+        let initTargetDirs = [tempDir, audioListDir, tempAudioListDir, effectAudioDir, changeDecibelDir]
+        initTargetDirs.forEach({dir in
+            do {
+                try FileManager.default.createDirectory(atPath: dir, withIntermediateDirectories: true, attributes: nil)
+            }
+            catch let error {
+                print(error)
+            }
+        })
+        removeDirContents(atPath: changeDecibelDir)
     }
     
     
@@ -269,6 +267,14 @@ import Alamofire
              messageAs:message
              )
             self.commandDelegate.send(result, callbackId: command.callbackId)
+        }
+    }
+    
+    // atPath 内のすべてのファイルを削除する
+    private func removeDirContents(atPath: String) {
+        let fileNames = try! FileManager.default.contentsOfDirectory(atPath: atPath)
+        for file in fileNames {
+            try! FileManager.default.removeItem(atPath: "\(atPath)/\(file)")
         }
     }
     
