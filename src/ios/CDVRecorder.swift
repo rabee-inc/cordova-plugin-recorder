@@ -19,6 +19,10 @@ import Alamofire
     var compressionPath = ""
     var audioListDir = ""
     var tempAudioListDir = ""
+    
+    var effectAudioDir = ""
+    var changeDecibelDir = ""
+    
     var isRecording = false
     var pushBufferCallBackId: String?
     var changeConnectedEarPhoneStatusCallBackId: String?
@@ -109,25 +113,19 @@ import Alamofire
         compressionPath = audioDir + "/joined.m4a"
         audioListDir = audioDir + "/audios"
         tempAudioListDir = tempDir + "/audios"
+        effectAudioDir = audioDir + "/effects"
+        changeDecibelDir = effectAudioDir + "/decibel"
         bgms = []
-        do {
-            try FileManager.default.createDirectory(atPath: tempDir, withIntermediateDirectories: true, attributes: nil)
-        }
-        catch let error {
-            print(error)
-        }
-        do {
-            try FileManager.default.createDirectory(atPath: audioListDir, withIntermediateDirectories: true, attributes: nil)
-        }
-        catch let error {
-            print(error)
-        }
-        do {
-            try FileManager.default.createDirectory(atPath: tempAudioListDir, withIntermediateDirectories: true, attributes: nil)
-        }
-        catch let error {
-            print(error)
-        }
+        let initTargetDirs = [tempDir, audioListDir, tempAudioListDir, effectAudioDir, changeDecibelDir]
+        initTargetDirs.forEach({dir in
+            do {
+                try FileManager.default.createDirectory(atPath: dir, withIntermediateDirectories: true, attributes: nil)
+            }
+            catch let error {
+                print(error)
+            }
+        })
+        removeDirContents(atPath: changeDecibelDir)
     }
     
     
@@ -269,6 +267,14 @@ import Alamofire
              messageAs:message
              )
             self.commandDelegate.send(result, callbackId: command.callbackId)
+        }
+    }
+    
+    // atPath 内のすべてのファイルを削除する
+    private func removeDirContents(atPath: String) {
+        let fileNames = try! FileManager.default.contentsOfDirectory(atPath: atPath)
+        for file in fileNames {
+            try! FileManager.default.removeItem(atPath: "\(atPath)/\(file)")
         }
     }
     
@@ -786,6 +792,44 @@ import Alamofire
         }
     }
     
+    // 特定のファイルの音量を変更(filepath, file_id, db)
+    @objc func changeDecibelForFile(_ command: CDVInvokedUrlCommand) {
+        guard let params = command.argument(at: 0) as? [Any] else {
+            let result = CDVPluginResult(
+                status: CDVCommandStatus_ERROR,
+                messageAs: ErrorCode.argumentError.toDictionary(message: "First argument required. Please specify [input: String, output_id: String, Number]")
+                )
+            self.commandDelegate.send(result, callbackId: command.callbackId)
+            return
+        }
+        guard let filePath = params[0] as? String,
+              let input = URL(string: filePath) else {
+            sendCordovaError(command: command, err: NSError(domain: "ファイルパスを文字列で指定してください", code: -1, userInfo: nil))
+            return
+        }
+        guard let id = params[1] as? String else {
+            sendCordovaError(command: command, err: NSError(domain: "IDを文字列で指定してください", code: -1, userInfo: nil))
+            return
+        }
+        guard let db = params[2] as? NSNumber else {
+            sendCordovaError(command: command, err: NSError(domain: "デシベルを数値で入力してください", code: -1, userInfo: nil))
+            return
+        }
+        let outputPath = changeDecibelDir + "/\(id)"
+        if !FileManager.default.fileExists(atPath: outputPath) {
+            do {
+                try changeDecibel(input: input.path, output: outputPath, db: db.doubleValue)
+            }
+            catch let err {
+                sendCordovaError(command: command, err: err)
+                return
+            }
+        }
+        
+        let result = CDVPluginResult(status: CDVCommandStatus_OK, messageAs: URL(fileURLWithPath: outputPath).absoluteString)
+        self.commandDelegate.send(result, callbackId: command.callbackId)
+    }
+    
     // 選択範囲の音量を変更
     @objc func changeDecibel(_ command: CDVInvokedUrlCommand) {
         guard let params = command.argument(at: 0) as? [NSNumber] else {
@@ -1070,14 +1114,13 @@ import Alamofire
         audioEngine.connect(eq, to: audioEngine.outputNode, format: format)
         
         playerNode.scheduleFile(audioFile, at: nil)
-        
         // オフラインレンダリングを有効化 (音声を再生せずにファイルに出力可能にする)
         let maxFrames: AVAudioFrameCount = 4096
         try audioEngine.enableManualRenderingMode(.offline, format: format, maximumFrameCount: maxFrames)
         
         
         // 書き込み先ファイルをつくる
-        let outputFile = try AVAudioFile(forWriting: outputURL, settings: audioFile.fileFormat.settings)
+        let outputFile = try AVAudioFile(forWriting: outputURL, settings: format.settings)
         
         // 出力を受け取るPCMBuffer用意
         // The output buffer to which the engine renders the processed data.
