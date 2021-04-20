@@ -249,7 +249,7 @@ import Alamofire
             let currentAudioURL = URL(string: currentPath) else {
             let result = CDVPluginResult(
                 status: CDVCommandStatus_ERROR,
-                messageAs: ErrorCode.argumentError.toDictionary(message: "[recorder: getAudio] First argument required. Please specify folder id")
+                messageAs: ErrorCode.argumentError.toDictionary(message: "[recorder: importAudio] First argument required. Please specify folder id")
                 )
             self.commandDelegate.send(result, callbackId: command.callbackId)
             return
@@ -576,7 +576,7 @@ import Alamofire
         guard let folderID = command.argument(at: 0, withDefault: String.self) as? String else {
             let result = CDVPluginResult(
                 status: CDVCommandStatus_ERROR,
-                messageAs: ErrorCode.argumentError.toDictionary(message: "[recorder: getAudio] First argument required. Please specify folder id")
+                messageAs: ErrorCode.argumentError.toDictionary(message: "[recorder: setFolder] First argument required. Please specify folder id")
                 )
             self.commandDelegate.send(result, callbackId: command.callbackId)
             return
@@ -609,6 +609,7 @@ import Alamofire
          self.commandDelegate.send(result, callbackId: command.callbackId)
     }
     
+    // もう使わない
     @objc func getAudio(_ command: CDVInvokedUrlCommand) {
         guard let folderID = command.argument(at: 0) as? String else {
             let result = CDVPluginResult(
@@ -659,7 +660,7 @@ import Alamofire
             let joinedAudioPath = URL(string: id) else {
             let result = CDVPluginResult(
                 status: CDVCommandStatus_ERROR,
-                messageAs: ErrorCode.argumentError.toDictionary(message: "[recorder: getAudio] First argument required. Please specify folder id")
+                messageAs: ErrorCode.argumentError.toDictionary(message: "[recorder: getWaveForm] First argument required. Please specify folder id")
                 )
             self.commandDelegate.send(result, callbackId: command.callbackId)
             return
@@ -679,7 +680,7 @@ import Alamofire
             let filePath = URL(string: id) else {
             let result = CDVPluginResult(
                 status: CDVCommandStatus_ERROR,
-                messageAs: ErrorCode.argumentError.toDictionary(message: "[recorder: getAudio] First argument required. Please specify file path")
+                messageAs: ErrorCode.argumentError.toDictionary(message: "[recorder: getWaveForm] First argument required. Please specify file path")
                 )
             self.commandDelegate.send(result, callbackId: command.callbackId)
             return
@@ -727,7 +728,7 @@ import Alamofire
         guard let splitSeconds = command.argument(at: 0) as? NSNumber else {
             let result = CDVPluginResult(
                 status: CDVCommandStatus_ERROR,
-                messageAs: ErrorCode.argumentError.toDictionary(message: "[recorder: getAudio] First argument required Number.")
+                messageAs: ErrorCode.argumentError.toDictionary(message: "[recorder: splitAndStart] First argument required Number.")
                 )
             self.commandDelegate.send(result, callbackId: command.callbackId)
             return
@@ -1003,7 +1004,7 @@ import Alamofire
         guard let params = command.argument(at: 0) as? [NSNumber] else {
             let result = CDVPluginResult(
                 status: CDVCommandStatus_ERROR,
-                messageAs: ErrorCode.argumentError.toDictionary(message: "[recorder: getAudio] First argument required. Please specify [number, number]")
+                messageAs: ErrorCode.argumentError.toDictionary(message: "[recorder: trim] First argument required. Please specify [number, number]")
                 )
             self.commandDelegate.send(result, callbackId: command.callbackId)
             return
@@ -1011,7 +1012,7 @@ import Alamofire
         if params.count < 2 {
             let result = CDVPluginResult(
                 status: CDVCommandStatus_ERROR,
-                messageAs: ErrorCode.argumentError.toDictionary(message: "[recorder: getAudio] First argument required. Please specify [number, number]")
+                messageAs: ErrorCode.argumentError.toDictionary(message: "[recorder: trim] First argument required. Please specify [number, number]")
                 )
             self.commandDelegate.send(result, callbackId: command.callbackId)
             return
@@ -1657,7 +1658,7 @@ extension CDVRecorder {
         guard let s = command.argument(at: 0) as? NSNumber else {
             let result = CDVPluginResult(
                 status: CDVCommandStatus_ERROR,
-                messageAs: ErrorCode.argumentError.toDictionary(message: "[recorder: getAudio] First argument required. Please specify number")
+                messageAs: ErrorCode.argumentError.toDictionary(message: "[recorder: seekBgm] First argument required. Please specify number")
                 )
             self.commandDelegate.send(result, callbackId: command.callbackId)
             return
