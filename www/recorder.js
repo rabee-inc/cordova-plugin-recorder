@@ -70,6 +70,9 @@ const recorder = {
   getMicPermission: (params) => createAction('getMicPermission', params),
   canRestore: (params) => createAction('canRestore', params),
   restore: (params) => createAction('restore', params),
+  addNewVersion: () => createAction('addNewVersion'),
+  restoreFromVersion: () => createAction('restoreFromVersion'),
+  removeVersions: () => createAction('removeVersions'),
   // イベントリスナー系
   onPushBuffer: (callback, onFail, param) => {
     return exec(callback, onFail, "Recorder", "onPushBuffer", [param]);

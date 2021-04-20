@@ -15,6 +15,7 @@ import Alamofire
     var tempDir = ""
     var tempWaveFormPath = ""
     var tempWavPath = ""
+    var playableAudioName = ""
     var joinedPath = ""
     var compressionPath = ""
     var audioListDir = ""
@@ -22,6 +23,8 @@ import Alamofire
     
     var effectAudioDir = ""
     var changeDecibelDir = ""
+    
+    var versionsDir = ""
     
     var isRecording = false
     var pushBufferCallBackId: String?
@@ -104,19 +107,22 @@ import Alamofire
             print(p.fractionCompleted)
         })
         let documentDir = NSSearchPathForDirectoriesInDomains(.documentDirectory, .userDomainMask, true).first!
+        
+        playableAudioName = "joined.wav"
         recordingDir = documentDir + "/recording"
         audioDir = documentDir + "/CDVRecorderAudio"
         tempDir = documentDir + "/CDVRecorderTemp"
         tempWaveFormPath = tempDir + "/waveform"
         tempWavPath = tempDir + "/temp.wav"
-        joinedPath = audioDir + "/joined.wav"
+        joinedPath = audioDir + "/\(playableAudioName)"
         compressionPath = audioDir + "/joined.m4a"
         audioListDir = audioDir + "/audios"
         tempAudioListDir = tempDir + "/audios"
         effectAudioDir = audioDir + "/effects"
         changeDecibelDir = effectAudioDir + "/decibel"
+        versionsDir = audioDir + "/versions"
         bgms = []
-        let initTargetDirs = [tempDir, audioListDir, tempAudioListDir, effectAudioDir, changeDecibelDir]
+        let initTargetDirs = [tempDir, audioListDir, tempAudioListDir, effectAudioDir, changeDecibelDir, versionsDir]
         initTargetDirs.forEach({dir in
             do {
                 try FileManager.default.createDirectory(atPath: dir, withIntermediateDirectories: true, attributes: nil)
@@ -297,6 +303,10 @@ import Alamofire
             try! FileManager.default.removeItem(atPath: tempWavPath)
         }
     }
+    
+    private func removeVersions() {
+        removeDirContents(atPath: versionsDir)
+    }
 
     // pause recording
     @objc func pause(_ command: CDVInvokedUrlCommand) {
@@ -392,6 +402,9 @@ import Alamofire
     // 音声の復元が可能かどうか。 joined.wav を生成可能かどうか
     @objc func canRestore(_ command: CDVInvokedUrlCommand) {
         var message = false
+        // versions に playableAudioName がある場合は移動する
+        _ = restoreFromVersion()
+        removeVersions()
         // 新仕様のファイルが存在する場合は、それを返す
         message = FileManager.default.fileExists(atPath: joinedPath)
         
@@ -460,6 +473,116 @@ import Alamofire
                 "name": "joined_audio"
             ],
         ] as [String : Any]
+    }
+    
+    // 指定したバージョンを復元する
+    private func restoreFromVersion(version: Int) -> String? {
+        let dir = "\(versionsDir)/\(version)"
+        var err: String? = nil
+        let playableAudioPath = "\(dir)/\(playableAudioName)"
+        if FileManager.default.fileExists(atPath: playableAudioPath) {
+            do {
+                if FileManager.default.fileExists(atPath: joinedPath) {
+                    try FileManager.default.removeItem(atPath: joinedPath)
+                }
+                try FileManager.default.moveItem(atPath: playableAudioPath, toPath: joinedPath)
+            }
+            catch let e {
+                err = "復元処理に失敗しました: " + e.localizedDescription
+            }
+        }
+        else {
+            err = "ファイルが存在しません"
+        }
+        return err
+    }
+    
+    // 一番最新の version から復元する (あとで audios とかの結合可能かどうかも見るが一旦 playableAudioName があるかだけ確認する)
+    // ファイルがなければ、文字列で返す
+    // ファイルがあれば、コピーして nil を返す
+    private func restoreFromVersion() -> String? {
+        var err: String? = nil
+        do {
+            // ファイルが有るかどうか確認する
+            var versions = try FileManager.default.contentsOfDirectory(atPath: versionsDir)
+            if versions.count <= 0 {
+                err = "ファイルが存在しません"
+            }
+            else {
+                // 大きい順にソート
+                versions.sort {$0 > $1}
+                for version in versions {
+                    err = restoreFromVersion(version: Int(version)!)
+                    if err == nil {
+                        break
+                    }
+                }
+            }
+        }
+        catch let e {
+            err = e.localizedDescription
+        }
+        return err
+    }
+    
+    // 指定したバージョンにコピーを取る
+    private func setToVersion(version: Int) throws {
+        let toDir = versionsDir + "/\(version)"
+        if !FileManager.default.fileExists(atPath: toDir) {
+            try FileManager.default.createDirectory(atPath: toDir, withIntermediateDirectories: true, attributes: nil)
+        }
+        let toPath = toDir + "/\(playableAudioName)"
+        if FileManager.default.fileExists(atPath: toPath) {
+            try FileManager.default.removeItem(atPath: toPath)
+        }
+        try FileManager.default.copyItem(atPath: joinedPath, toPath: toPath)
+    }
+    
+    // 新しいバージョンを生成する
+    private func addNewVersion() throws -> Int {
+        let versions = try FileManager.default.contentsOfDirectory(atPath: versionsDir)
+        try setToVersion(version: versions.count)
+        return versions.count
+    }
+    
+    // 指定したversionを削除する
+    private func removeVersion(version: Int) throws {
+        let dir = versionsDir + "/\(version)"
+        if FileManager.default.fileExists(atPath: dir) {
+            try FileManager.default.removeItem(atPath: dir)
+        }
+    }
+    
+    // 新しい version にバックアップを取る (int)
+    @objc func addNewVersion(_ command: CDVInvokedUrlCommand) {
+        do {
+            let version = try addNewVersion()
+            let result = CDVPluginResult(status: CDVCommandStatus_OK, messageAs: version)
+            self.commandDelegate.send(result, callbackId: command.callbackId)
+        }
+        catch let err {
+            sendCordovaError(command: command, err: err)
+            return
+        }
+    }
+    
+    // 一番新しいバージョンで復元する
+    @objc func restoreFromVersion(_ command: CDVInvokedUrlCommand) {
+        let err = restoreFromVersion()
+        if err == nil {
+            let result = CDVPluginResult(status: CDVCommandStatus_OK, messageAs: true)
+            self.commandDelegate.send(result, callbackId: command.callbackId)
+        }
+        else {
+            sendCordovaError(command: command, err: NSError(domain: err!, code: -1, userInfo: nil))
+        }
+    }
+    
+    // すべてのversionを削除
+    @objc func removeVersions(_ command: CDVInvokedUrlCommand) {
+        removeVersions()
+        let result = CDVPluginResult(status: CDVCommandStatus_OK, messageAs: true)
+        self.commandDelegate.send(result, callbackId: command.callbackId)
     }
     
     // 音声ファイルを結合する
@@ -1101,6 +1224,7 @@ import Alamofire
         let outputURL = URL(fileURLWithPath: tempWavPath)
         let audioFile = try AVAudioFile(forReading: inputURL)
         let format = audioFile.processingFormat
+        
         let playerNode = AVAudioPlayerNode()
         self.eq = AVAudioUnitEQ()
         
