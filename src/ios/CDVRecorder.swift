@@ -553,7 +553,7 @@ import Alamofire
         }
     }
     
-    // 新しい version にバックアップを取る (int)
+    // 新しい version にバックアップを取る
     @objc func addNewVersion(_ command: CDVInvokedUrlCommand) {
         do {
             let version = try addNewVersion()
