@@ -26,6 +26,9 @@ import Alamofire
     
     var versionsDir = ""
     
+    var maxVolume: Float = 0
+    var volumeCheckCount: Int = 0
+    
     var isRecording = false
     var pushBufferCallBackId: String?
     var changeConnectedEarPhoneStatusCallBackId: String?
@@ -95,6 +98,8 @@ import Alamofire
     // called starting app
     override func pluginInitialize() {
         bufferSize = 4096
+        maxVolume = 0
+        volumeCheckCount = 0
         print("[cordova plugin REC. intializing]")
         // エンジンとミキサーの初期化
         engine = AVAudioEngine()
@@ -1487,10 +1492,15 @@ import Alamofire
     
     // 1 チャンネルの最大音量を取得
     private func getMaxVolume(buffer: AVAudioPCMBuffer) -> Float {
-        var maxVolume: Float = 0
-        var n = 0
         let data = buffer.floatChannelData![0]
         let length = Int(buffer.frameLength)
+        return getMaxVolume(data: data, startIndex: 0, length: length, maxVolume: 0)
+    }
+    
+    // 1 チャンネルの最大音量を取得。 startIndex ~ length までしか比較せず、初期値を指定できる
+    private func getMaxVolume(data: UnsafeMutablePointer<Float>, startIndex: Int, length: Int, maxVolume: Float) -> Float {
+        var maxVolume = maxVolume
+        var n = startIndex
         while n < length {
             let volume = abs(data[n])
             if (volume > maxVolume) {
@@ -1529,12 +1539,7 @@ import Alamofire
             // マイクのインストール
             engine?.inputNode.installTap(onBus: 0, bufferSize: UInt32(self.bufferSize), format: micFormat) {  [weak self] (buffer:AVAudioPCMBuffer, when:AVAudioTime) in
                 guard let self = self else {return}
-                // call back が登録されていたら
-                if self.pushBufferCallBackId != nil {
-                    let result = CDVPluginResult(status: CDVCommandStatus_OK, messageAs: [self.getMaxVolume(buffer: buffer)])
-                    result?.keepCallback = true
-                    self.commandDelegate.send(result, callbackId: self.pushBufferCallBackId)
-                }
+                self.pushBuffer(buffer: buffer)
                 do {
                     try audioFile.write(from: buffer)
                 } catch let err {
@@ -1560,6 +1565,11 @@ import Alamofire
     
     // 録音をとめる
     private func pauseRecord() throws -> Bool {
+        // 波形の余りがあれば送信する
+        if volumeCheckCount > 0 {
+            callPushBufferCallback()
+            volumeCheckCount = 0
+        }
         // stop engine
         self.pauseBgm() // bgm も停止
         self.engine?.stop()
@@ -1574,6 +1584,39 @@ import Alamofire
         
         // 追加が終わったら true
         return true
+    }
+    
+    // bufferSize ごとに maxVolume を Web に pushBufferCallback する
+    private func pushBuffer(buffer: AVAudioPCMBuffer) {
+        var checkCount = bufferSize - volumeCheckCount
+        let length = Int(buffer.frameLength)
+        let data = buffer.floatChannelData![0]
+        
+        var startIndex = 0
+        // bufferSize が足りる限り maxVolume を Web へ送信
+        while checkCount <= length - startIndex {
+            maxVolume = getMaxVolume(data: data, startIndex: startIndex, length: checkCount, maxVolume: maxVolume)
+            callPushBufferCallback()
+            startIndex += checkCount
+            checkCount = bufferSize
+        }
+        // 余った分を次のループのために一時変数に保存
+        volumeCheckCount = length - startIndex
+        if volumeCheckCount > 0 {
+            maxVolume = getMaxVolume(data: data, startIndex: startIndex, length: length, maxVolume: maxVolume)
+        }
+    }
+    
+    // pushBufferのcallbackを実行する
+    private func callPushBufferCallback() {
+        // call back が登録されていたら
+        if self.pushBufferCallBackId != nil {
+            let result = CDVPluginResult(status: CDVCommandStatus_OK, messageAs: [maxVolume])
+            result?.keepCallback = true
+            self.commandDelegate.send(result, callbackId: self.pushBufferCallBackId)
+        }
+        maxVolume = 0
+        volumeCheckCount = 0
     }
     
     private func getCurrentJoinedAudioURL() -> URL {
