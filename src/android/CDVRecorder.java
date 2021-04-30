@@ -328,6 +328,12 @@ public class CDVRecorder extends CordovaPlugin {
         } else if (action.equals(("initialize"))) {
             callbackContext.success("ok");
             return true;
+        } else if (action.equals(("canRestore"))) {
+            cordova.setActivityResultCallback(this);
+            canRestore(activity, callbackContext);
+            return true;
+        } else if (action.equals(("restore"))) {
+            return true;
         } else  {
             return false;
         }
@@ -354,8 +360,8 @@ public class CDVRecorder extends CordovaPlugin {
         return true;
     }
 
-    
-    
+
+
 
     @Override
     public void onActivityResult(int requestCode, int resultCode, Intent intent) {
@@ -367,7 +373,6 @@ public class CDVRecorder extends CordovaPlugin {
     public void startRecording(final Activity activity, final CallbackContext callbackContext) {
         // 処理
         playBgm();
-        System.out.println(JOINED_PATH);
         start(JOINED_PATH, callbackContext);
 
     }
@@ -500,7 +505,7 @@ public class CDVRecorder extends CordovaPlugin {
 
     @RequiresApi(api = Build.VERSION_CODES.LOLLIPOP)
     private void getAudio(final Activity activity, final CallbackContext callbackContext, final String audioId) {
-        String pathname = JOINED_PATH;
+        String pathname = RECORDING_ROOT_DIR + "/" + audioId + "/merged/merged.wav";
         File inputFile = new File(pathname);
 
         JSONObject audioData = new JSONObject();
@@ -522,6 +527,52 @@ public class CDVRecorder extends CordovaPlugin {
         }
     }
 
+    private void canRestore(final Activity activity, final CallbackContext callbackContext) {
+        boolean message = false;
+        message = new File(JOINED_PATH).exists();
+        // 新仕様のファイルが存在しない場合は、 結合前のファイルが一つでも存在するかチェック
+        if (!message) {
+            File audioList = new File(AUDIO_LIST_DIR);
+            if (audioList.exists()) {
+                File[] files = audioList.listFiles();
+                message = files.length != 0;
+            }
+        }
+
+        if (!message) {
+            File recordingDir = new File(RECORDING_ROOT_DIR);
+            if (recordingDir.exists()) {
+                File[] files = recordingDir.listFiles();
+                if (files.length != 0) {
+                    Arrays.sort(files, (File a, File b) -> {
+                        return Integer.parseInt(b.getName()) - Integer.parseInt(b.getName());
+                    });
+                    File file = files[0];
+                    File joinedFile = new File(RECORDING_ROOT_DIR + "/" + file.getName() + "/merged/merged.wav");
+                    if (joinedFile.exists()) {
+                        File targetFile = new File(JOINED_PATH);
+                        joinedFile.renameTo(targetFile);
+                        message = true;
+                        deleteDirectory(new File(RECORDING_ROOT_DIR));
+                    }
+                }
+            }
+        }
+
+        callbackContext.success(message ? 1 : 0);
+
+    }
+
+    // 再帰的にフォルダ削除
+    boolean deleteDirectory(File directoryToBeDeleted) {
+        File[]allContents = directoryToBeDeleted.listFiles();
+        if (allContents != null) {
+            for (File file : allContents) {
+                deleteDirectory(file);
+            }
+        }
+        return directoryToBeDeleted.delete();
+    }
 
     // 音声ファイルをwavに変換する
     private Promise convertToWav(File inputFile, File outputFile) {
@@ -565,8 +616,8 @@ public class CDVRecorder extends CordovaPlugin {
 
         // すでに 録音している音声があった場合はマージする最初に追加
 //        if (mergedFile.exists()) {
-            commands.add("-i");
-            commands.add(mergedFile.getAbsolutePath());
+        commands.add("-i");
+        commands.add(mergedFile.getAbsolutePath());
 //            concatAudioCounter++;
 //        }
 
@@ -878,7 +929,7 @@ public class CDVRecorder extends CordovaPlugin {
             }
         });
     }
-    
+
     private String getWaveForm(File inputFile, File outputFile) throws IOException, WavFileException {
         if (!outputFile.getParentFile().exists()) {
             outputFile.getParentFile().mkdir();
@@ -982,33 +1033,8 @@ public class CDVRecorder extends CordovaPlugin {
             @Override
             public void run() {
                 try {
-//
-//                    if (audioId != null) {
-//                        currentAudioId = audioId;
-//                    } else {
-//                        currentAudioId = getNewAudioId();
-//                    }
-//
-//                    String sequencePath = JOINED_PATH + "/" + currentAudioId + "/" + "sequences";
-//                    File sequenseDir = new File(sequencePath);
-//
-//                    // フォルダーがなければ生成する
-//                    if (!sequenseDir.exists()) {
-//                        if (!sequenseDir.getParentFile().exists()) {
-//                            sequenseDir.getParentFile().mkdir();
-//                        }
-//                        sequenseDir.mkdir();
-//                    }
                     File audioFile = new File(JOINED_PATH);
                     Log.v("debug", "run");
-
-                    // 実際に録音するファイル
-//                    File temp_audio = File.createTempFile("joined", ".wav", audioFile);
-//                    Log.v("audio file name", temp_audio.getName());
-//                    Log.v("audio file path", temp_audio.getAbsolutePath());
-
-//                    // シーケンスに追加
-//                    sequences.add(audio);
 
                     isRecording = true;
 
