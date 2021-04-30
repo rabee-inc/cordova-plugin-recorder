@@ -107,9 +107,14 @@ public class CDVRecorder extends CordovaPlugin {
     private Recorder recorder;
 
     private String RECORDING_ROOT_DIR;
+    private String AUDIO_DIR;
     private String TEMP_DIR;
     private String WAVEFORM_PATH;
-    private String TEMP_WAV;
+    private String TEMP_WAV_PATH;
+    private String JOINED_PATH;
+    private String COMPRESSION_PATH;
+    private String AUDIO_LIST_DIR;
+    private String TEMP_AUDIOS_DIR;
     private String action;
     private CallbackContext callbackContext;
     private CallbackContext pushBufferCallbackContext;
@@ -189,17 +194,22 @@ public class CDVRecorder extends CordovaPlugin {
 
         // root フォルダーのチェック
         RECORDING_ROOT_DIR = cordova.getContext().getFilesDir() + "/recording";
+        AUDIO_DIR = cordova.getContext().getFilesDir() + "/CDVRecorderAudio";
         TEMP_DIR = cordova.getContext().getFilesDir() + "/CDVRecorderTemp";
         WAVEFORM_PATH = TEMP_DIR + "/waveform";
-        TEMP_WAV = TEMP_DIR + "/temp.wav";
-        // root フォルダーの存在チェック
-        File file = new File(RECORDING_ROOT_DIR);
-        if (!file.exists()) {
-            file.mkdir();
-        }
-        File tempFile = new File(TEMP_DIR);
-        if (!tempFile.exists()) {
-            tempFile.mkdir();
+        TEMP_WAV_PATH = TEMP_DIR + "/temp.wav";
+        JOINED_PATH = AUDIO_DIR + "/joined.wav";
+        COMPRESSION_PATH = AUDIO_DIR + "/joined.mp3";
+        AUDIO_LIST_DIR = AUDIO_DIR + "/audios";
+        TEMP_AUDIOS_DIR = TEMP_DIR + "/audios";
+
+        String initTargetDirs[] = {AUDIO_DIR, TEMP_DIR, AUDIO_LIST_DIR, TEMP_AUDIOS_DIR};
+
+        for(String dir: initTargetDirs) {
+            File file = new File(dir);
+            if (!file.exists()) {
+                file.mkdir();
+            }
         }
     }
 
@@ -324,13 +334,13 @@ public class CDVRecorder extends CordovaPlugin {
 
     }
 
-    
+
 
     // パーミッションあるかどうか確認=>なければリクエスト出す
     private boolean checkSelfPermission(String permission, int requestCode) {
         Log.i(TAG, "checkSelfPermission $permission $requestCode");
         return ContextCompat.checkSelfPermission(cordova.getContext(),
-                        permission) == PackageManager.PERMISSION_GRANTED;
+                permission) == PackageManager.PERMISSION_GRANTED;
     }
 
     private boolean getMicPermission(Activity activity, CallbackContext callbackContext) {
@@ -356,10 +366,9 @@ public class CDVRecorder extends CordovaPlugin {
 
     public void startRecording(final Activity activity, final CallbackContext callbackContext) {
         // 処理
-        currentAudioId = null;
-        sequences = new ArrayList<File>();
         playBgm();
-        start(currentAudioId, callbackContext);
+        System.out.println(JOINED_PATH);
+        start(JOINED_PATH, callbackContext);
 
     }
 
@@ -380,7 +389,7 @@ public class CDVRecorder extends CordovaPlugin {
             callbackContext.error("not initialize audio");
         } else {
             playBgm();
-            start(currentAudioId, callbackContext);
+            start(JOINED_PATH, callbackContext);
             callbackContext.success("ok");
         }
     }
@@ -392,8 +401,7 @@ public class CDVRecorder extends CordovaPlugin {
             pauseBgm();
             // 処理
             isRecording = false;
-            currentAudioId = null;
-            sequences = new ArrayList<File>();
+
             callbackContext.success("ok");
         } catch (IOException e) {
             callbackContext.error(e.getLocalizedMessage());
@@ -492,7 +500,7 @@ public class CDVRecorder extends CordovaPlugin {
 
     @RequiresApi(api = Build.VERSION_CODES.LOLLIPOP)
     private void getAudio(final Activity activity, final CallbackContext callbackContext, final String audioId) {
-        String pathname = RECORDING_ROOT_DIR + "/" + audioId + "/merged/merged.wav";
+        String pathname = JOINED_PATH;
         File inputFile = new File(pathname);
 
         JSONObject audioData = new JSONObject();
@@ -546,8 +554,9 @@ public class CDVRecorder extends CordovaPlugin {
 
         File currentAudioFolder = getCurrentAudioFolder();
         ArrayList<String> commands = new ArrayList<String>();
-        File outputDir = new File(currentAudioFolder.getAbsolutePath() + "/merged" + "/temp-merged.wav");
-        File mergedFile = new File(currentAudioFolder.getAbsolutePath() + "/merged" + "/merged.wav");
+        File outputDir = new File(AUDIO_DIR);
+        File mergedFile = new File(JOINED_PATH);
+        Log.v("merge file path", mergedFile.getAbsolutePath());
 
         int concatAudioCounter = 0;
 
@@ -555,20 +564,22 @@ public class CDVRecorder extends CordovaPlugin {
         commands.add("-y");
 
         // すでに 録音している音声があった場合はマージする最初に追加
-        if (mergedFile.exists()) {
+//        if (mergedFile.exists()) {
             commands.add("-i");
             commands.add(mergedFile.getAbsolutePath());
-            concatAudioCounter++;
-        }
+//            concatAudioCounter++;
+//        }
 
         if (!outputDir.getParentFile().exists()) {
             outputDir.getParentFile().mkdir();
         }
 
+        File audioDir = new File(AUDIO_LIST_DIR);
+        File[] audioFiles = audioDir.listFiles();
         // sequences に入ってる音声データをマージ
-        for (int i = 0; i < sequences.size(); i++) {
+        for (int i = 0; i < audioFiles.length; i++) {
             commands.add("-i");
-            commands.add(sequences.get(i).getAbsolutePath());
+            commands.add(audioFiles[i].getAbsolutePath());
             concatAudioCounter++;
         }
         if (concatAudioCounter > 0) {
@@ -589,6 +600,7 @@ public class CDVRecorder extends CordovaPlugin {
         Deferred deferred = new DeferredObject();
         Promise promise = deferred.promise();
 
+        Log.v("AAAAAAA ffmpeg command list", command);
 
         long executionId = FFmpeg.executeAsync(command, new ExecuteCallback() {
 
@@ -694,11 +706,23 @@ public class CDVRecorder extends CordovaPlugin {
 
     private void removeFolder(final Activity activity, final CallbackContext callbackContext, final String id) {
         removeFolder(id);
-        callbackContext.success("success");
+        callbackContext.success("supccess");
     }
 
     private void removeFolder(String id) {
         File dir = new File(RECORDING_ROOT_DIR + "/" + id);
+        if (dir.exists()) {
+            String deleteCmd = "rm -r " + dir.getAbsolutePath();
+            Runtime runtime = Runtime.getRuntime();
+            try {
+                runtime.exec(deleteCmd);
+            } catch (IOException e) {
+            }
+        }
+    }
+
+    private void removeAudios(String id) {
+        File dir = new File(AUDIO_LIST_DIR + "/" + id);
         if (dir.exists()) {
             String deleteCmd = "rm -r " + dir.getAbsolutePath();
             Runtime runtime = Runtime.getRuntime();
@@ -958,29 +982,33 @@ public class CDVRecorder extends CordovaPlugin {
             @Override
             public void run() {
                 try {
-
-                    if (audioId != null) {
-                        currentAudioId = audioId;
-                    } else {
-                        currentAudioId = getNewAudioId();
-                    }
-
-                    String sequencePath = RECORDING_ROOT_DIR + "/" + currentAudioId + "/" + "sequences";
-                    File sequenseDir = new File(sequencePath);
-
-                    // フォルダーがなければ生成する
-                    if (!sequenseDir.exists()) {
-                        if (!sequenseDir.getParentFile().exists()) {
-                            sequenseDir.getParentFile().mkdir();
-                        }
-                        sequenseDir.mkdir();
-                    }
+//
+//                    if (audioId != null) {
+//                        currentAudioId = audioId;
+//                    } else {
+//                        currentAudioId = getNewAudioId();
+//                    }
+//
+//                    String sequencePath = JOINED_PATH + "/" + currentAudioId + "/" + "sequences";
+//                    File sequenseDir = new File(sequencePath);
+//
+//                    // フォルダーがなければ生成する
+//                    if (!sequenseDir.exists()) {
+//                        if (!sequenseDir.getParentFile().exists()) {
+//                            sequenseDir.getParentFile().mkdir();
+//                        }
+//                        sequenseDir.mkdir();
+//                    }
+                    File audioFile = new File(JOINED_PATH);
+                    Log.v("debug", "run");
 
                     // 実際に録音するファイル
-                    File audio = File.createTempFile("sequence", ".wav", sequenseDir);
+//                    File temp_audio = File.createTempFile("joined", ".wav", audioFile);
+//                    Log.v("audio file name", temp_audio.getName());
+//                    Log.v("audio file path", temp_audio.getAbsolutePath());
 
-                    // シーケンスに追加
-                    sequences.add(audio);
+//                    // シーケンスに追加
+//                    sequences.add(audio);
 
                     isRecording = true;
 
@@ -996,7 +1024,7 @@ public class CDVRecorder extends CordovaPlugin {
                                 pushBufferCallbackContext.sendPluginResult(result);
                             }
                         }
-                    }), audio);
+                    }), audioFile);
                     recorder.startRecording();
                     // sample rate を送る
                     JSONObject resultData = new JSONObject();
