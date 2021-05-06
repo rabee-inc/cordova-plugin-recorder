@@ -420,7 +420,7 @@ public class CDVRecorder extends CordovaPlugin {
         cordova.getThreadPool().execute(new Runnable() {
             @Override
             public void run() {
-                mergeAudio().done(new DoneCallback<File>() {
+                generateJoinedAudio().done(new DoneCallback<File>() {
                     @Override
                     public void onDone(File file) {
                         try {
@@ -561,6 +561,11 @@ public class CDVRecorder extends CordovaPlugin {
 
         callbackContext.success(message ? 1 : 0);
 
+    }
+
+    public void restore() {
+        Log.v("restore", "restore called");
+        generateJoinedAudio();
     }
 
     // 再帰的にフォルダ削除
@@ -752,6 +757,86 @@ public class CDVRecorder extends CordovaPlugin {
         this.currentAudioId = null;
         removeFolder(id);
         callbackContext.success("succss");
+    }
+
+    private Promise concatAudio(ArrayList<String> files, String outputPath) {
+        // temp.wavを削除する
+        // filesにあるfileを結合していく
+        // 元のjoined.wavがあれば削除
+        // temp.wavをjoined.wavにファイル名変更
+        ArrayList<String> commands = new ArrayList<String>();
+        int concatAudioCounter = 0;
+        File tempFile = new File(TEMP_WAV_PATH);
+        File outputDir = new File(outputPath);
+        File mergedFile = new File(JOINED_PATH);
+        tempFile.delete();
+        // success と finish を発火させるのに必要
+        commands.add("-y");
+        for(String file :files) {
+            String filePath = new File(file).getAbsolutePath();
+            commands.add("-i");
+            commands.add(filePath);
+            concatAudioCounter++;
+        }
+        if (concatAudioCounter > 0) {
+            commands.add("-filter_complex");
+            commands.add("concat=n=" + concatAudioCounter + ":v=0:a=1");
+        }
+        commands.add(outputPath);
+
+        String command = "";
+        for (String str: commands) {
+            command += str + " ";
+        }
+
+        Deferred deferred = new DeferredObject();
+        Promise promise = deferred.promise();
+
+        File joinedFile = new File(JOINED_PATH);
+        if (joinedFile.exists()) {
+            joinedFile.delete();
+        }
+
+        Log.v("concat audio command is ", command);
+
+        long executionId = FFmpeg.executeAsync(command, new ExecuteCallback() {
+
+            @Override
+            public void apply(final long executionId, final int returnCode) {
+                Log.v("ffmpeg executeAsync is run", Integer.valueOf(returnCode).toString());
+                if (returnCode == RETURN_CODE_SUCCESS) {
+
+                    File newMergedFile = new File(mergedFile.getAbsolutePath());
+
+                    outputDir.renameTo(newMergedFile);
+
+                    deferred.resolve(newMergedFile);
+                } else if (returnCode == RETURN_CODE_CANCEL) {
+                    LOG.v(TAG, "Async command execution cancelled by user.");
+                } else {
+                    LOG.v(TAG, String.format("Async command execution failed with returnCode=%d.", returnCode));
+                }
+            }
+        });
+
+        return promise;
+
+    }
+
+    private Promise generateJoinedAudio() {
+        ArrayList<String> targets = new ArrayList<String>();
+        if (new File(JOINED_PATH).exists()) {
+            targets.add(JOINED_PATH);
+        }
+        if (new File(AUDIO_LIST_DIR).exists()) {
+                File[] audioList = new File(AUDIO_LIST_DIR).listFiles();
+                Arrays.sort(audioList);
+            for(File file: audioList) {
+                targets.add(AUDIO_LIST_DIR + '/' + file.getName());
+            }
+        }
+        Promise promise = concatAudio(targets, JOINED_PATH);
+        return promise;
     }
 
 
