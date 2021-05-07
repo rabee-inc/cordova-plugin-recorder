@@ -1066,12 +1066,8 @@ public class CDVRecorder extends CordovaPlugin {
 
         commands.add(formattedStartString);
 
-        // 入力ファイル
-        commands.add("-i");
-        commands.add(new File(input).getAbsolutePath());
-
         // 終了時間
-        commands.add("-t");
+        commands.add("-to");
         end *= 1000;
         // 小数第一位を切り捨て
         BigDecimal formattedEnd = new BigDecimal(String.valueOf(end)).setScale(0, RoundingMode.DOWN);
@@ -1079,6 +1075,12 @@ public class CDVRecorder extends CordovaPlugin {
         String formattedEndString = formatter.format(plainEnd);
 
         commands.add(formattedEndString);
+
+
+        // 入力ファイル
+        commands.add("-i");
+        commands.add(new File(input).getAbsolutePath());
+
 
         // 出力ファイル
         commands.add(tempFile.getAbsolutePath());
