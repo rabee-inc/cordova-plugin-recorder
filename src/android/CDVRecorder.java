@@ -36,6 +36,7 @@ import org.apache.cordova.*;
 
 import org.jdeferred2.Deferred;
 import org.jdeferred2.DoneCallback;
+import org.jdeferred2.FailCallback;
 import org.jdeferred2.Promise;
 import org.jdeferred2.impl.DeferredObject;
 import org.jetbrains.annotations.NotNull;
@@ -333,7 +334,8 @@ public class CDVRecorder extends CordovaPlugin {
             canRestore(activity, callbackContext);
             return true;
         } else if (action.equals(("restore"))) {
-            restore();
+            cordova.setActivityResultCallback(this);
+            restore(activity, callbackContext);
             return true;
         } else  {
             return false;
@@ -421,17 +423,20 @@ public class CDVRecorder extends CordovaPlugin {
         cordova.getThreadPool().execute(new Runnable() {
             @Override
             public void run() {
-                generateJoinedAudio().done(new DoneCallback<File>() {
+                generateJoinedAudio().then(new DoneCallback<File>() {
                     @Override
                     public void onDone(File file) {
                         try {
-                            fullAudio.put("path", "file://" + file.getAbsoluteFile());
-                            audioData.put("full_audio", fullAudio);
-                            PluginResult result = new PluginResult(PluginResult.Status.OK, audioData);
+                            PluginResult result = new PluginResult(PluginResult.Status.OK, getJoinedAudioData());
                             callbackContext.sendPluginResult(result);
                         } catch (Exception e) {
-
+                            callbackContext.error("json error");
                         }
+                    }
+                }).fail(new FailCallback<String>() {
+                    @Override
+                    public void onFail(String result) {
+                        callbackContext.error(result);
                     }
                 });
 
@@ -503,7 +508,6 @@ public class CDVRecorder extends CordovaPlugin {
         }
     }
 
-
     @RequiresApi(api = Build.VERSION_CODES.LOLLIPOP)
     private void getAudio(final Activity activity, final CallbackContext callbackContext, final String audioId) {
         String pathname = RECORDING_ROOT_DIR + "/" + audioId + "/merged/merged.wav";
@@ -564,9 +568,42 @@ public class CDVRecorder extends CordovaPlugin {
 
     }
 
-    public void restore() {
+    private JSONObject getJoinedAudioData() throws JSONException {
+        File audioPath = new File(JOINED_PATH);
+
+        JSONObject audioData = new JSONObject();
+        JSONObject fullAudio = new JSONObject();
+
+        fullAudio.put("path", "file://" + audioPath.getAbsoluteFile());
+        Uri uri = Uri.parse(JOINED_PATH);
+        MediaMetadataRetriever mmr = new MediaMetadataRetriever();
+        mmr.setDataSource(this.cordova.getContext(), uri);
+        String durationStr = mmr.extractMetadata(MediaMetadataRetriever.METADATA_KEY_DURATION);
+
+        fullAudio.put("duration", Integer.parseInt(durationStr) / 1000.0);
+        audioData.put("full_audio", fullAudio);
+        return audioData;
+    }
+
+    public void restore(Activity activity, CallbackContext callbackContext) {
         Log.v("restore", "restore called");
-        generateJoinedAudio();
+        Promise promise = generateJoinedAudio();
+        promise.then(new DoneCallback<File>() {
+            @Override
+            public void onDone(File success) {
+                try {
+                    PluginResult result = new PluginResult(PluginResult.Status.OK, getJoinedAudioData());
+                    callbackContext.sendPluginResult(result);
+                } catch (Exception e) {
+                    callbackContext.error("json error");
+                }
+            }
+        }).fail(new FailCallback<String>() {
+            @Override
+            public void onFail(String result) {
+                callbackContext.error(result);
+            }
+        });
     }
 
     // 再帰的にフォルダ削除
@@ -594,11 +631,13 @@ public class CDVRecorder extends CordovaPlugin {
             public void apply(final long executionId, final int returnCode) {
                 if (returnCode == RETURN_CODE_SUCCESS) {
                     LOG.v(TAG, "finish");
-                    deferred.resolve(null);
+                    deferred.resolve("success");
                 } else if (returnCode == RETURN_CODE_CANCEL) {
                     LOG.v(TAG, "Async command execution cancelled by user.");
+                    deferred.reject("cancel");
                 } else {
                     LOG.v(TAG, String.format("Async command execution failed with returnCode=%d.", returnCode));
+                    deferred.reject("failed");
                 }
             }
         });
@@ -760,17 +799,19 @@ public class CDVRecorder extends CordovaPlugin {
         callbackContext.success("succss");
     }
 
-    private Promise concatAudio(ArrayList<String> files, String outputPath) {
+    private Promise concatAudio(List<String> files, String outputPath) {
         // temp.wavを削除する
         // filesにあるfileを結合していく
         // 元のjoined.wavがあれば削除
         // temp.wavをjoined.wavにファイル名変更
-        ArrayList<String> commands = new ArrayList<String>();
+        List<String> commands = new ArrayList<String>();
         int concatAudioCounter = 0;
         File tempFile = new File(TEMP_WAV_PATH);
-        File outputDir = new File(outputPath);
-        File mergedFile = new File(JOINED_PATH);
-        tempFile.delete();
+
+        if (tempFile.exists()) {
+            tempFile.delete();
+        }
+
         // success と finish を発火させるのに必要
         commands.add("-y");
         for(String file :files) {
@@ -783,20 +824,14 @@ public class CDVRecorder extends CordovaPlugin {
             commands.add("-filter_complex");
             commands.add("concat=n=" + concatAudioCounter + ":v=0:a=1");
         }
-        commands.add(outputPath);
+        commands.add(TEMP_WAV_PATH);
 
         String command = "";
         for (String str: commands) {
             command += str + " ";
         }
-
         Deferred deferred = new DeferredObject();
         Promise promise = deferred.promise();
-
-        File joinedFile = new File(JOINED_PATH);
-        if (joinedFile.exists()) {
-            joinedFile.delete();
-        }
 
         Log.v("concat audio command is ", command);
 
@@ -806,16 +841,21 @@ public class CDVRecorder extends CordovaPlugin {
             public void apply(final long executionId, final int returnCode) {
                 Log.v("ffmpeg executeAsync is run", Integer.valueOf(returnCode).toString());
                 if (returnCode == RETURN_CODE_SUCCESS) {
+                    File outputFile = new File(outputPath);
 
-                    File newMergedFile = new File(mergedFile.getAbsolutePath());
+                    if (outputFile.exists()) {
+                        outputFile.delete();
+                    }
 
-                    outputDir.renameTo(newMergedFile);
+                    tempFile.renameTo(outputFile);
 
-                    deferred.resolve(newMergedFile);
+                    deferred.resolve(outputFile);
                 } else if (returnCode == RETURN_CODE_CANCEL) {
                     LOG.v(TAG, "Async command execution cancelled by user.");
+                    deferred.reject("cancel");
                 } else {
                     LOG.v(TAG, String.format("Async command execution failed with returnCode=%d.", returnCode));
+                    deferred.reject("failed");
                 }
             }
         });
@@ -825,13 +865,15 @@ public class CDVRecorder extends CordovaPlugin {
     }
 
     private Promise generateJoinedAudio() {
-        ArrayList<String> targets = new ArrayList<String>();
+        List<String> targets = new ArrayList<String>();
         if (new File(JOINED_PATH).exists()) {
             targets.add(JOINED_PATH);
         }
         if (new File(AUDIO_LIST_DIR).exists()) {
-                File[] audioList = new File(AUDIO_LIST_DIR).listFiles();
-                Arrays.sort(audioList);
+            File[] audioList = new File(AUDIO_LIST_DIR).listFiles();
+            Arrays.sort(audioList, (File a, File b) -> {
+                return Integer.parseInt(b.getName()) - Integer.parseInt(b.getName());
+            });
             for(File file: audioList) {
                 targets.add(AUDIO_LIST_DIR + '/' + file.getName());
             }
@@ -1001,7 +1043,7 @@ public class CDVRecorder extends CordovaPlugin {
             return;
         }
 
-        File tempwaveform = new File(RECORDING_ROOT_DIR + "/" + currentAudioId + "/tempwaveform/temppcmbuffer");
+        File tempwaveform = new File(WAVEFORM_PATH);
         cordova.getThreadPool().execute(new Runnable() {
             @Override
             public void run() {
