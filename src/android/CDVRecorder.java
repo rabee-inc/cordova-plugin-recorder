@@ -18,7 +18,7 @@ import android.media.MediaRecorder;
 import android.net.Uri;
 import android.os.Build;
 import android.util.Log;
-import android.view.animation.AccelerateInterpolator;
+
 import androidx.core.content.ContextCompat;
 
 
@@ -40,17 +40,13 @@ import org.jdeferred2.FailCallback;
 import org.jdeferred2.Promise;
 import org.jdeferred2.impl.DeferredObject;
 import org.jetbrains.annotations.NotNull;
-import org.jetbrains.annotations.Nullable;
 import org.json.JSONArray;
 import org.json.JSONException;
 import org.json.JSONObject;
 
 import java.io.File;
-import java.io.FileInputStream;
-import java.io.FileNotFoundException;
 import java.io.FileOutputStream;
 import java.io.IOException;
-import java.io.InputStream;
 import java.io.OutputStream;
 import java.math.BigDecimal;
 import java.math.RoundingMode;
@@ -67,7 +63,6 @@ import java.util.UUID;
 
 import androidx.annotation.NonNull;
 import androidx.annotation.RequiresApi;
-import androidx.core.app.ActivityCompat;
 
 
 import omrecorder.AudioChunk;
@@ -78,8 +73,6 @@ import omrecorder.PullableSource;
 import omrecorder.Recorder;
 
 import com.tonyodev.fetch2.*;
-import com.tonyodev.fetch2.Error;
-import com.tonyodev.fetch2core.DownloadBlock;
 import com.tonyodev.fetch2.Request;
 
 import static com.arthenica.mobileffmpeg.Config.RETURN_CODE_CANCEL;
@@ -115,7 +108,7 @@ public class CDVRecorder extends CordovaPlugin {
     private String JOINED_PATH;
     private String COMPRESSION_PATH;
     private String AUDIO_LIST_DIR;
-    private String TEMP_AUDIOS_DIR;
+    private String TEMP_AUDIO_LIST_DIR;
     private String action;
     private CallbackContext callbackContext;
     private CallbackContext pushBufferCallbackContext;
@@ -202,9 +195,9 @@ public class CDVRecorder extends CordovaPlugin {
         JOINED_PATH = AUDIO_DIR + "/joined.wav";
         COMPRESSION_PATH = AUDIO_DIR + "/joined.mp3";
         AUDIO_LIST_DIR = AUDIO_DIR + "/audios";
-        TEMP_AUDIOS_DIR = TEMP_DIR + "/audios";
+        TEMP_AUDIO_LIST_DIR = TEMP_DIR + "/audios";
 
-        String initTargetDirs[] = {AUDIO_DIR, TEMP_DIR, AUDIO_LIST_DIR, TEMP_AUDIOS_DIR};
+        String initTargetDirs[] = {AUDIO_DIR, TEMP_DIR, AUDIO_LIST_DIR, TEMP_AUDIO_LIST_DIR};
 
         for(String dir: initTargetDirs) {
             File file = new File(dir);
@@ -721,10 +714,7 @@ public class CDVRecorder extends CordovaPlugin {
         List<String> commands = new ArrayList<String>();
         int concatAudioCounter = 0;
         File tempFile = new File(TEMP_WAV_PATH);
-
-        if (tempFile.exists()) {
-            tempFile.delete();
-        }
+        removeTempWav();
 
         // success と finish を発火させるのに必要
         commands.add("-y");
@@ -776,6 +766,17 @@ public class CDVRecorder extends CordovaPlugin {
 
         return promise;
 
+    }
+
+    private void removeTempAudios() {
+        deleteDirectoryFiles(new File(TEMP_AUDIO_LIST_DIR));
+    }
+
+    private void removeTempWav() {
+        File tempFile = new File(TEMP_WAV_PATH);
+        if (tempFile.exists()) {
+            tempFile.delete();
+        }
     }
 
     private Promise generateJoinedAudio() {
