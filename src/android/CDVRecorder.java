@@ -987,9 +987,9 @@ public class CDVRecorder extends CordovaPlugin {
 
     private void trim(Activity activity, CallbackContext callbackContext, double start, double end) {
         Promise p = trim(JOINED_PATH, JOINED_PATH, start, end);
-        p.then(new DoneCallback<File>() {
+        p.then(new DoneCallback<String>() {
             @Override
-            public void onDone(File file) {
+            public void onDone(String file) {
                 try {
                     PluginResult result = new PluginResult(PluginResult.Status.OK, getJoinedAudioData());
                     callbackContext.sendPluginResult(result);
