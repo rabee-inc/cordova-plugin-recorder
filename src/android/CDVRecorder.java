@@ -45,6 +45,7 @@ import org.json.JSONException;
 import org.json.JSONObject;
 
 import java.io.File;
+import java.io.FileInputStream;
 import java.io.FileOutputStream;
 import java.io.IOException;
 import java.io.OutputStream;
@@ -52,6 +53,7 @@ import java.math.BigDecimal;
 import java.math.RoundingMode;
 import java.nio.ByteBuffer;
 import java.nio.ByteOrder;
+import java.nio.channels.FileChannel;
 import java.text.SimpleDateFormat;
 import java.util.ArrayList;
 import java.util.Arrays;
@@ -103,8 +105,11 @@ public class CDVRecorder extends CordovaPlugin {
     private String RECORDING_ROOT_DIR;
     private String AUDIO_DIR;
     private String TEMP_DIR;
+    private String VERSIONS_DIR;
+
     private String WAVEFORM_PATH;
     private String TEMP_WAV_PATH;
+    private String PLAYABLE_AUDIO_NAME;
     private String JOINED_PATH;
     private String COMPRESSION_PATH;
     private String AUDIO_LIST_DIR;
@@ -185,19 +190,20 @@ public class CDVRecorder extends CordovaPlugin {
         };
 
         webView.getContext().registerReceiver(this.btReciver, intentFilter);
-
+        PLAYABLE_AUDIO_NAME = "joined.wav";
         // root フォルダーのチェック
         RECORDING_ROOT_DIR = cordova.getContext().getFilesDir() + "/recording";
         AUDIO_DIR = cordova.getContext().getFilesDir() + "/CDVRecorderAudio";
         TEMP_DIR = cordova.getContext().getFilesDir() + "/CDVRecorderTemp";
         WAVEFORM_PATH = TEMP_DIR + "/waveform";
         TEMP_WAV_PATH = TEMP_DIR + "/temp.wav";
-        JOINED_PATH = AUDIO_DIR + "/joined.wav";
+        JOINED_PATH = AUDIO_DIR + "/" + PLAYABLE_AUDIO_NAME;
         COMPRESSION_PATH = AUDIO_DIR + "/joined.mp3";
         AUDIO_LIST_DIR = AUDIO_DIR + "/audios";
         TEMP_AUDIO_LIST_DIR = TEMP_DIR + "/audios";
+        VERSIONS_DIR = AUDIO_DIR + "/versions";
 
-        String initTargetDirs[] = {AUDIO_DIR, TEMP_DIR, AUDIO_LIST_DIR, TEMP_AUDIO_LIST_DIR};
+        String initTargetDirs[] = {AUDIO_DIR, TEMP_DIR, AUDIO_LIST_DIR, TEMP_AUDIO_LIST_DIR, VERSIONS_DIR};
 
         for(String dir: initTargetDirs) {
             File file = new File(dir);
@@ -332,6 +338,34 @@ public class CDVRecorder extends CordovaPlugin {
             cordova.setActivityResultCallback(this);
             JSONArray jsonArray = args.getJSONArray(0);
             trim(activity, callbackContext, jsonArray.getDouble(0), jsonArray.getDouble(1));
+            return true;
+        } else if (action.equals("addNewVersion")) {
+            cordova.setActivityResultCallback(this);
+            try {
+                int version = addNewVersion();
+                PluginResult p = new PluginResult(PluginResult.Status.OK, version);
+                callbackContext.sendPluginResult(p);
+            } catch (IOException e) {
+                callbackContext.error("write file error");
+            }
+            return true;
+        } else if (action.equals("restoreFromVersion")) {
+            cordova.setActivityResultCallback(this);
+            String err = restoreFromVersion();
+            if (err == null) {
+                PluginResult p = new PluginResult(PluginResult.Status.OK, true);
+                callbackContext.sendPluginResult(p);
+            }
+            else {
+                callbackContext.error(err);
+            }
+            return true;
+        } else if (action.equals("removeVersions")) {
+            cordova.setActivityResultCallback(this);
+            removeVersions();
+
+            PluginResult p = new PluginResult(PluginResult.Status.OK, true);
+            callbackContext.sendPluginResult(p);
             return true;
         } else  {
             return false;
@@ -525,6 +559,8 @@ public class CDVRecorder extends CordovaPlugin {
 
     private void canRestore(final Activity activity, final CallbackContext callbackContext) {
         boolean message = false;
+        restoreFromVersion();
+        removeVersions();
         message = new File(JOINED_PATH).exists();
         // 新仕様のファイルが存在しない場合は、 結合前のファイルが一つでも存在するかチェック
         if (!message) {
@@ -541,7 +577,7 @@ public class CDVRecorder extends CordovaPlugin {
                 File[] files = recordingDir.listFiles();
                 if (files.length != 0) {
                     Arrays.sort(files, (File a, File b) -> {
-                        return Integer.parseInt(b.getName()) - Integer.parseInt(b.getName());
+                        return Integer.parseInt(b.getName()) - Integer.parseInt(a.getName());
                     });
                     File file = files[0];
                     File joinedFile = new File(RECORDING_ROOT_DIR + "/" + file.getName() + "/merged/merged.wav");
@@ -558,6 +594,86 @@ public class CDVRecorder extends CordovaPlugin {
         callbackContext.success(message ? 1 : 0);
 
     }
+
+    private String restoreFromVersion() {
+        File versionsFile = new File(VERSIONS_DIR);
+        File[] versions = versionsFile.listFiles();
+        String err = null;
+        if (versions.length <= 0) {
+            return "ファイルが存在しません";
+        }
+        Arrays.sort(versions, (File a, File b) -> {
+            return Integer.parseInt(b.getName()) - Integer.parseInt(a.getName());
+        });
+        for (File version: versions) {
+            err = restoreFromVersion(version.getName());
+            if (err == null) {
+                break;
+            }
+        }
+        return err;
+    }
+
+    private String restoreFromVersion(String version) {
+        String dir = VERSIONS_DIR + "/" + version;
+        String err = null;
+        String playableAudioPath = dir + "/" + PLAYABLE_AUDIO_NAME;
+        File playableAudioFile = new File(playableAudioPath);
+        if (playableAudioFile.exists()) {
+            File joinedFile = new File(JOINED_PATH);
+            if (joinedFile.exists()) {
+                joinedFile.delete();
+            }
+            playableAudioFile.renameTo(joinedFile);
+        } else {
+            err = "ファイルが存在しません";
+        }
+        return err;
+    }
+
+    private void setToVersion(int version) throws IOException {
+        String toDirPath = VERSIONS_DIR + "/" + version;
+        File toDir = new File(toDirPath);
+        if (!toDir.exists()) {
+            toDir.mkdir();
+        }
+        String toPath = toDirPath + "/" + PLAYABLE_AUDIO_NAME;
+        File toFile = new File(toPath);
+        if (toFile.exists()) {
+            toFile.delete();
+        }
+        copyFile(new File(JOINED_PATH), toFile);
+    }
+
+    private int addNewVersion() throws IOException {
+        File[] versions = new File(VERSIONS_DIR).listFiles();
+        setToVersion(versions.length);
+        return versions.length;
+    }
+
+    private void removeVersion(String version) {
+        File dir = new File(VERSIONS_DIR + "/" + version);
+        if (dir.exists()) {
+            deleteDirectory(dir);
+        }
+    }
+
+
+    private void copyFile(File in, File out) throws IOException {
+        FileChannel inChannel = new FileInputStream(in).getChannel();
+        FileChannel outChannel = new FileOutputStream(out).getChannel();
+        try {
+            inChannel.transferTo(0, inChannel.size(),outChannel);
+        }
+        catch (IOException e) {
+            throw e;
+        }
+        finally {
+            if (inChannel != null) inChannel.close();
+            if (outChannel != null) outChannel.close();
+        }
+    }
+
 
     private JSONObject getJoinedAudioData() throws JSONException {
         File audioPath = new File(JOINED_PATH);
@@ -787,7 +903,7 @@ public class CDVRecorder extends CordovaPlugin {
         if (new File(AUDIO_LIST_DIR).exists()) {
             File[] audioList = new File(AUDIO_LIST_DIR).listFiles();
             Arrays.sort(audioList, (File a, File b) -> {
-                return Integer.parseInt(b.getName()) - Integer.parseInt(b.getName());
+                return Integer.parseInt(a.getName()) - Integer.parseInt(b.getName());
             });
             for(File file: audioList) {
                 targets.add(AUDIO_LIST_DIR + '/' + file.getName());
@@ -817,6 +933,10 @@ public class CDVRecorder extends CordovaPlugin {
         if (compression.exists()) {
             compression.delete();
         }
+    }
+
+    private void removeVersions() {
+        deleteDirectoryFiles(new File(VERSIONS_DIR));
     }
 
     private void removeAudios() {
