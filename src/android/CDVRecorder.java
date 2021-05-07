@@ -920,7 +920,8 @@ public class CDVRecorder extends CordovaPlugin {
         if (new File(AUDIO_LIST_DIR).exists()) {
             File[] audioList = new File(AUDIO_LIST_DIR).listFiles();
             Arrays.sort(audioList, (File a, File b) -> {
-                return Integer.parseInt(a.getName()) - Integer.parseInt(b.getName());
+                // 1.wav 2.wav で拡張子を除いて 2 - 1 する
+                return Integer.parseInt(a.getName().replaceAll("[^0-9]", "")) - Integer.parseInt(b.getName().replaceAll("[^0-9]", ""));
             });
             for(File file: audioList) {
                 targets.add(AUDIO_LIST_DIR + '/' + file.getName());
