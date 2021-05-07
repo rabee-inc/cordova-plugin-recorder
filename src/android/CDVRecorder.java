@@ -337,13 +337,17 @@ public class CDVRecorder extends CordovaPlugin {
             cordova.setActivityResultCallback(this);
             restore(activity, callbackContext);
             return true;
+        } else if (action.equals("trim")) {
+            cordova.setActivityResultCallback(this);
+            JSONArray jsonArray = args.getJSONArray(0);
+            jsonArray.getDouble(0);
+            trim(activity, callbackContext, jsonArray.getDouble(0), jsonArray.getDouble(0));
+            return true;
         } else  {
             return false;
         }
 
     }
-
-
 
     // パーミッションあるかどうか確認=>なければリクエスト出す
     private boolean checkSelfPermission(String permission, int requestCode) {
@@ -981,6 +985,109 @@ public class CDVRecorder extends CordovaPlugin {
                 } else {
                     LOG.v(TAG, String.format("Async command execution failed with returnCode=%d.", returnCode));
                 }
+            }
+        });
+    }
+
+    /**
+     *
+     * @param input 入力ファイル
+     * @param output 出力先
+     * @param start 開始時間 (秒)
+     * @param end 終了時間 (秒)
+     * @return Promise ffmpeg の非同期処理
+     */
+    private Promise trim(String input, String output, double start, double end) {
+        File tempFile = new File(TEMP_WAV_PATH);
+        if (tempFile.exists()) {
+            tempFile.delete();
+        }
+
+        List<String> commands = new ArrayList<String>();
+
+        // 開始時間の設定
+        commands.add("-ss");
+
+        start *= 1000;
+        // 小数第一位を切り捨て
+        BigDecimal formattedStart = new BigDecimal(String.valueOf(start)).setScale(0, RoundingMode.DOWN);
+        int plainStart = Integer.parseInt(formattedStart.toPlainString());
+
+        // 時間のフォーマット整形クラス生成
+        SimpleDateFormat formatter = new SimpleDateFormat("HH:mm:ss.SSS");
+        formatter.setTimeZone(TimeZone.getTimeZone("GMT"));
+
+        String formattedStartString = formatter.format(plainStart);
+
+        commands.add(formattedStartString);
+
+        // 入力ファイル
+        commands.add("-i");
+        commands.add(new File(input).getAbsolutePath());
+
+        // 終了時間
+        commands.add("-t");
+        end *= 1000;
+        // 小数第一位を切り捨て
+        BigDecimal formattedEnd = new BigDecimal(String.valueOf(end)).setScale(0, RoundingMode.DOWN);
+        int plainEnd = Integer.parseInt(formattedEnd.toPlainString());
+        String formattedEndString = formatter.format(plainEnd);
+
+        commands.add(formattedEndString);
+
+        // 出力ファイル
+        commands.add(tempFile.getAbsolutePath());
+
+
+        String[] command = commands.toArray(new String[commands.size()]);
+
+        // 非同期処理
+        Deferred deferred = new DeferredObject();
+        Promise promise = deferred.promise();
+
+        long executionId = FFmpeg.executeAsync(command, new ExecuteCallback() {
+
+            @Override
+            public void apply(final long executionId, final int returnCode) {
+                if (returnCode == RETURN_CODE_SUCCESS) {
+                    File outputFile = new File(output);
+                    // temp-merged -> merged
+                    if (outputFile.exists()) {
+                        outputFile.delete();
+                    }
+
+                    tempFile.renameTo(outputFile);
+
+                    deferred.resolve("success");
+                } else if (returnCode == RETURN_CODE_CANCEL) {
+                    LOG.v(TAG, "Async command execution cancelled by user.");
+                    deferred.reject("cancel");
+                } else {
+                    LOG.v(TAG, String.format("Async command execution failed with returnCode=%d.", returnCode));
+                    deferred.reject("failed");
+                }
+            }
+        });
+
+        return promise;
+    }
+
+    private void trim(Activity activity, CallbackContext callbackContext, double start, double end) {
+        Promise p = trim(JOINED_PATH, JOINED_PATH, start, end);
+        p.then(new DoneCallback<File>() {
+            @Override
+            public void onDone(File file) {
+                try {
+                    PluginResult result = new PluginResult(PluginResult.Status.OK, getJoinedAudioData());
+                    callbackContext.sendPluginResult(result);
+                } catch (Exception e) {
+                    callbackContext.error("json error");
+                }
+            }
+        }).fail(new FailCallback<String>() {
+            @Override
+            public void onFail(String result) {
+                callbackContext.error(result);
             }
         });
     }
