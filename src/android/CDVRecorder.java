@@ -38,7 +38,10 @@ import org.jdeferred2.Deferred;
 import org.jdeferred2.DoneCallback;
 import org.jdeferred2.FailCallback;
 import org.jdeferred2.Promise;
+import org.jdeferred2.impl.DefaultDeferredManager;
 import org.jdeferred2.impl.DeferredObject;
+import org.jdeferred2.multiple.MultipleResults;
+import org.jdeferred2.multiple.OneReject;
 import org.jetbrains.annotations.NotNull;
 import org.json.JSONArray;
 import org.json.JSONException;
@@ -58,6 +61,7 @@ import java.text.SimpleDateFormat;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Collection;
+import java.util.Collections;
 import java.util.HashMap;
 import java.util.List;
 import java.util.TimeZone;
@@ -366,6 +370,16 @@ public class CDVRecorder extends CordovaPlugin {
 
             PluginResult p = new PluginResult(PluginResult.Status.OK, true);
             callbackContext.sendPluginResult(p);
+            return true;
+        } else if (action.equals("cut")) {
+            cordova.setActivityResultCallback(this);
+            JSONArray jsonArray = args.getJSONArray(0);
+            ArrayList<double[]> trims = new ArrayList<>();
+            for (int i = 0; i < jsonArray.length(); i++) {
+                JSONArray doubles = jsonArray.getJSONArray(i);
+                trims.add(new double[] {doubles.getDouble(0), doubles.getDouble(1)});
+            }
+            cut(activity, callbackContext, trims);
             return true;
         } else  {
             return false;
@@ -682,14 +696,17 @@ public class CDVRecorder extends CordovaPlugin {
         JSONObject fullAudio = new JSONObject();
 
         fullAudio.put("path", "file://" + audioPath.getAbsoluteFile());
-        Uri uri = Uri.parse(JOINED_PATH);
+        fullAudio.put("duration", getDuration(JOINED_PATH));
+        audioData.put("full_audio", fullAudio);
+        return audioData;
+    }
+
+    private double getDuration(String audioPath) {
+        Uri uri = Uri.parse(audioPath);
         MediaMetadataRetriever mmr = new MediaMetadataRetriever();
         mmr.setDataSource(this.cordova.getContext(), uri);
         String durationStr = mmr.extractMetadata(MediaMetadataRetriever.METADATA_KEY_DURATION);
-
-        fullAudio.put("duration", Integer.parseInt(durationStr) / 1000.0);
-        audioData.put("full_audio", fullAudio);
-        return audioData;
+        return Double.parseDouble(durationStr) / 1000.0;
     }
 
     public void restore(Activity activity, CallbackContext callbackContext) {
@@ -1115,6 +1132,66 @@ public class CDVRecorder extends CordovaPlugin {
             @Override
             public void onFail(String result) {
                 callbackContext.error(result);
+            }
+        });
+    }
+
+
+    private void cut(Activity activity, CallbackContext callbackContext, List<double[]> params) {
+        List<double[]> trimParams = new ArrayList<>();
+        trimParams.add(new double[]{0.0,  0.0});
+
+        Collections.sort(params, (double[] a, double[] b) -> {
+            return (int) (a[0] - b[0]);
+        });
+        int i = 1;
+        for (double[] param : params) {
+            double start = param[0];
+            double end = param[1];
+            trimParams.get(i - 1)[1] = start;
+            trimParams.add(new double[]{end, end});
+            i++;
+        }
+        trimParams.get(i - 1)[1] = getDuration(JOINED_PATH);
+        i = 1;
+        removeAudios();
+        DefaultDeferredManager defaultDeferredManager = new DefaultDeferredManager();
+        ArrayList<Promise> promises = new ArrayList<>();
+        for (double[] param : trimParams) {
+            if (param[0] != param[1]) {
+                promises.add(trim(JOINED_PATH, AUDIO_LIST_DIR + "/" + i + ".wav", param[0], param[1]));
+                i++;
+            }
+        }
+        defaultDeferredManager.when(promises).then(new DoneCallback<MultipleResults>() {
+            @Override
+            public void onDone(MultipleResults result) {
+                File joinedFile = new File(JOINED_PATH);
+                if (joinedFile.exists()) {
+                    joinedFile.delete();
+                }
+                generateJoinedAudio().then(new DoneCallback() {
+                    @Override
+                    public void onDone(Object res) {
+                        try {
+                            PluginResult result = new PluginResult(PluginResult.Status.OK, getJoinedAudioData());
+                            callbackContext.sendPluginResult(result);
+                        } catch (JSONException e) {
+                            e.printStackTrace();
+                            callbackContext.error("json error");
+                        }
+                    }
+                }).fail(new FailCallback<String>() {
+                    @Override
+                    public void onFail(String result) {
+                        callbackContext.error(result);
+                    }
+                });
+            }
+        }).fail(new FailCallback<OneReject<?>>() {
+            @Override
+            public void onFail(OneReject<?> result) {
+                callbackContext.error("カットに失敗しました。");
             }
         });
     }
