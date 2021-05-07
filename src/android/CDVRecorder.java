@@ -377,6 +377,7 @@ public class CDVRecorder extends CordovaPlugin {
 
 
     public void startRecording(final Activity activity, final CallbackContext callbackContext) {
+        removeAudios();
         // 処理
         playBgm();
         start(JOINED_PATH, callbackContext);
@@ -423,23 +424,23 @@ public class CDVRecorder extends CordovaPlugin {
             @Override
             public void run() {
                 generateJoinedAudio().then(new DoneCallback<File>() {
-                @Override
-                public void onDone(File file) {
-                    try {
-                        PluginResult result = new PluginResult(PluginResult.Status.OK, getJoinedAudioData());
-                        callbackContext.sendPluginResult(result);
-                    } catch (Exception e) {
-                        callbackContext.error("json error");
+                    @Override
+                    public void onDone(File file) {
+                        try {
+                            PluginResult result = new PluginResult(PluginResult.Status.OK, getJoinedAudioData());
+                            callbackContext.sendPluginResult(result);
+                        } catch (Exception e) {
+                            callbackContext.error("json error");
+                        }
                     }
-                }
-            }).fail(new FailCallback<String>() {
-                @Override
-                public void onFail(String result) {
-                    callbackContext.error(result);
-                }
-            });
+                }).fail(new FailCallback<String>() {
+                    @Override
+                    public void onFail(String result) {
+                        callbackContext.error(result);
+                    }
+                });
 
-        }
+            }
 
         });
 
