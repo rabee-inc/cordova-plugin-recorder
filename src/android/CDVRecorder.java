@@ -1156,43 +1156,39 @@ public class CDVRecorder extends CordovaPlugin {
         trimParams.get(i - 1)[1] = getDuration(JOINED_PATH);
         i = 1;
         removeAudios();
-        DefaultDeferredManager defaultDeferredManager = new DefaultDeferredManager();
-        ArrayList<Promise> promises = new ArrayList<>();
         for (double[] param : trimParams) {
             if (param[0] != param[1]) {
-                promises.add(trim(JOINED_PATH, AUDIO_LIST_DIR + "/" + i + ".wav", param[0], param[1]));
+                Promise trim = trim(JOINED_PATH, AUDIO_LIST_DIR + "/" + i + ".wav", param[0], param[1]);
+                try {
+                    trim.waitSafely();
+                } catch (InterruptedException e) {
+                    e.printStackTrace();
+                    callbackContext.error("カットに失敗しました");
+                    removeAudios();
+                    return;
+                }
                 i++;
             }
         }
-        defaultDeferredManager.when(promises).then(new DoneCallback<MultipleResults>() {
+        File joinedFile = new File(JOINED_PATH);
+        if (joinedFile.exists()) {
+            joinedFile.delete();
+        }
+        generateJoinedAudio().then(new DoneCallback() {
             @Override
-            public void onDone(MultipleResults result) {
-                File joinedFile = new File(JOINED_PATH);
-                if (joinedFile.exists()) {
-                    joinedFile.delete();
+            public void onDone(Object res) {
+                try {
+                    PluginResult result = new PluginResult(PluginResult.Status.OK, getJoinedAudioData());
+                    callbackContext.sendPluginResult(result);
+                } catch (JSONException e) {
+                    e.printStackTrace();
+                    callbackContext.error("json error");
                 }
-                generateJoinedAudio().then(new DoneCallback() {
-                    @Override
-                    public void onDone(Object res) {
-                        try {
-                            PluginResult result = new PluginResult(PluginResult.Status.OK, getJoinedAudioData());
-                            callbackContext.sendPluginResult(result);
-                        } catch (JSONException e) {
-                            e.printStackTrace();
-                            callbackContext.error("json error");
-                        }
-                    }
-                }).fail(new FailCallback<String>() {
-                    @Override
-                    public void onFail(String result) {
-                        callbackContext.error(result);
-                    }
-                });
             }
-        }).fail(new FailCallback<OneReject<?>>() {
+        }).fail(new FailCallback<String>() {
             @Override
-            public void onFail(OneReject<?> result) {
-                callbackContext.error("カットに失敗しました。");
+            public void onFail(String result) {
+                callbackContext.error(result);
             }
         });
     }
