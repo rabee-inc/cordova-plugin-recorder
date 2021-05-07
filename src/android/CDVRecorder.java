@@ -264,9 +264,7 @@ public class CDVRecorder extends CordovaPlugin {
             getRecordingFolders(activity, callbackContext);
             return true;
         } else if (action.equals("removeFolder")) {
-            String audioId = args.get(0).toString();
-            cordova.setActivityResultCallback(this);
-            removeFolder(activity, callbackContext, audioId);
+            removeFolder(activity, callbackContext);
             return true;
         } else if (action.equals("removeCurrentFolder")) {
             cordova.setActivityResultCallback(this);
@@ -710,9 +708,8 @@ public class CDVRecorder extends CordovaPlugin {
     }
 
     private void removeCurrentFolder(final Activity activity, final CallbackContext callbackContext) {
-        String id = this.currentAudioId;
         this.currentAudioId = null;
-        removeFolder(id);
+        removeFolder();
         callbackContext.success("succss");
     }
 
@@ -804,20 +801,20 @@ public class CDVRecorder extends CordovaPlugin {
         });
     }
 
-    private void removeFolder(final Activity activity, final CallbackContext callbackContext, final String id) {
-        removeFolder(id);
-        callbackContext.success("supccess");
+    private void removeFolder(final Activity activity, final CallbackContext callbackContext) {
+        removeFolder();
+        callbackContext.success("success");
     }
 
-    private void removeFolder(String id) {
-        File dir = new File(RECORDING_ROOT_DIR + "/" + id);
-        if (dir.exists()) {
-            String deleteCmd = "rm -r " + dir.getAbsolutePath();
-            Runtime runtime = Runtime.getRuntime();
-            try {
-                runtime.exec(deleteCmd);
-            } catch (IOException e) {
-            }
+    private void removeFolder() {
+        removeAudios();
+        File joined = new File(JOINED_PATH);
+        if (joined.exists()) {
+            joined.delete();
+        }
+        File compression = new File(COMPRESSION_PATH);
+        if (compression.exists()) {
+            compression.delete();
         }
     }
 
