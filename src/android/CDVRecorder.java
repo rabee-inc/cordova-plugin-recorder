@@ -1002,40 +1002,17 @@ public class CDVRecorder extends CordovaPlugin {
     }
 
     private void importAudio(final Activity activity, final CallbackContext callbackContext, String audioPath) {
-        File originalPath;
         if (audioPath != null) {
-
             String path = audioPath.replace("file://", "");
-
-            originalPath = new File(path);
-
-            currentAudioId = getNewAudioId();
-            File newMergedParentFile = new File(RECORDING_ROOT_DIR + "/" + currentAudioId);
-            if (!newMergedParentFile.exists()) {
-                newMergedParentFile.mkdir();
-            }
-            File newMergedFile = new File(RECORDING_ROOT_DIR + "/" + currentAudioId + "/merged/merged.wav");
-            File mergedPath = new File(newMergedFile.getAbsolutePath());
-            if (!mergedPath.getParentFile().exists()) {
-                mergedPath.getParentFile().mkdir();
-            }
-
-            JSONObject fullAudio = new JSONObject();
-            JSONObject audioData = new JSONObject();
-
+            File input = new File(path);
+            input.renameTo(new File(JOINED_PATH));
+            removeAudios();
             try {
-                originalPath.renameTo(mergedPath);
-                fullAudio.put("path", "file://" + newMergedFile.getAbsoluteFile());
-                audioData.put("full_audio", fullAudio);
-                audioData.put("folder_id", currentAudioId);
-
-                PluginResult result = new PluginResult(PluginResult.Status.OK, audioData);
+                PluginResult result = new PluginResult(PluginResult.Status.OK, getJoinedAudioData());
                 callbackContext.sendPluginResult(result);
             } catch (Exception e) {
                 callbackContext.error("error on importing");
             }
-
-
         } else {
             callbackContext.error("please set audio");
             return;
