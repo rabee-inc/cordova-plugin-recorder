@@ -340,8 +340,7 @@ public class CDVRecorder extends CordovaPlugin {
         } else if (action.equals("trim")) {
             cordova.setActivityResultCallback(this);
             JSONArray jsonArray = args.getJSONArray(0);
-            jsonArray.getDouble(0);
-            trim(activity, callbackContext, jsonArray.getDouble(0), jsonArray.getDouble(0));
+            trim(activity, callbackContext, jsonArray.getDouble(0), jsonArray.getDouble(1));
             return true;
         } else  {
             return false;
@@ -396,14 +395,10 @@ public class CDVRecorder extends CordovaPlugin {
     }
 
     public void resumeRecording(final Activity activity, final CallbackContext callbackContext) {
-        // currentAudio がなければ
-        if (currentAudioId == null) {
-            callbackContext.error("not initialize audio");
-        } else {
-            File[] files = new File(AUDIO_LIST_DIR).listFiles();
-            playBgm();
-            start(AUDIO_LIST_DIR + "/" + files.length + ".wav", callbackContext);
-        }
+        File[] files = new File(AUDIO_LIST_DIR).listFiles();
+        playBgm();
+        start(AUDIO_LIST_DIR + "/" + files.length + ".wav", callbackContext);
+        isRecording = true;
     }
 
 
