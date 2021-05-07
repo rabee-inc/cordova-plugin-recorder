@@ -400,9 +400,9 @@ public class CDVRecorder extends CordovaPlugin {
         if (currentAudioId == null) {
             callbackContext.error("not initialize audio");
         } else {
+            File[] files = new File(AUDIO_LIST_DIR).listFiles();
             playBgm();
-            start(JOINED_PATH, callbackContext);
-            callbackContext.success("ok");
+            start(AUDIO_LIST_DIR + "/" + files.length + ".wav", callbackContext);
         }
     }
 
@@ -428,23 +428,23 @@ public class CDVRecorder extends CordovaPlugin {
             @Override
             public void run() {
                 generateJoinedAudio().then(new DoneCallback<File>() {
-                    @Override
-                    public void onDone(File file) {
-                        try {
-                            PluginResult result = new PluginResult(PluginResult.Status.OK, getJoinedAudioData());
-                            callbackContext.sendPluginResult(result);
-                        } catch (Exception e) {
-                            callbackContext.error("json error");
-                        }
+                @Override
+                public void onDone(File file) {
+                    try {
+                        PluginResult result = new PluginResult(PluginResult.Status.OK, getJoinedAudioData());
+                        callbackContext.sendPluginResult(result);
+                    } catch (Exception e) {
+                        callbackContext.error("json error");
                     }
-                }).fail(new FailCallback<String>() {
-                    @Override
-                    public void onFail(String result) {
-                        callbackContext.error(result);
-                    }
-                });
+                }
+            }).fail(new FailCallback<String>() {
+                @Override
+                public void onFail(String result) {
+                    callbackContext.error(result);
+                }
+            });
 
-            }
+        }
 
         });
 
@@ -621,13 +621,20 @@ public class CDVRecorder extends CordovaPlugin {
         return directoryToBeDeleted.delete();
     }
 
+    void deleteDirectoryFiles(File directoryToBeDeleted) {
+        File[]allContents = directoryToBeDeleted.listFiles();
+        if (allContents != null) {
+            for (File file : allContents) {
+                deleteDirectory(file);
+            }
+        }
+    }
+
     // 音声ファイルをwavに変換する
     private Promise convertToWav(File inputFile, File outputFile) {
 
         Deferred deferred = new DeferredObject();
         Promise promise = deferred.promise();
-
-
 
         long executionId = FFmpeg.executeAsync("-y -i " + inputFile.getAbsolutePath() + " " + outputFile.getAbsolutePath(), new ExecuteCallback() {
 
@@ -883,9 +890,13 @@ public class CDVRecorder extends CordovaPlugin {
             }
         }
         Promise promise = concatAudio(targets, JOINED_PATH);
-        return promise;
+        return promise.then(new DoneCallback() {
+            @Override
+            public void onDone(Object result) {
+                removeAudios();
+            }
+        });
     }
-
 
     private void removeFolder(final Activity activity, final CallbackContext callbackContext, final String id) {
         removeFolder(id);
@@ -904,16 +915,8 @@ public class CDVRecorder extends CordovaPlugin {
         }
     }
 
-    private void removeAudios(String id) {
-        File dir = new File(AUDIO_LIST_DIR + "/" + id);
-        if (dir.exists()) {
-            String deleteCmd = "rm -r " + dir.getAbsolutePath();
-            Runtime runtime = Runtime.getRuntime();
-            try {
-                runtime.exec(deleteCmd);
-            } catch (IOException e) {
-            }
-        }
+    private void removeAudios() {
+        deleteDirectoryFiles(new File(AUDIO_LIST_DIR));
     }
 
     private File getCurrentAudioFolder() {
@@ -1263,12 +1266,12 @@ public class CDVRecorder extends CordovaPlugin {
 
 
     // 音源の録音開始
-    private void start(String audioId, final CallbackContext callbackContext) {
+    private void start(String path, final CallbackContext callbackContext) {
         cordova.getThreadPool().execute(new Runnable() {
             @Override
             public void run() {
                 try {
-                    File audioFile = new File(JOINED_PATH);
+                    File audioFile = new File(path);
                     Log.v("debug", "run");
 
                     isRecording = true;
