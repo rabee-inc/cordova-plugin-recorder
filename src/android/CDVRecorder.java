@@ -333,6 +333,7 @@ public class CDVRecorder extends CordovaPlugin {
             canRestore(activity, callbackContext);
             return true;
         } else if (action.equals(("restore"))) {
+            restore();
             return true;
         } else  {
             return false;
