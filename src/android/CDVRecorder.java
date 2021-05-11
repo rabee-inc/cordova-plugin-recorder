@@ -296,7 +296,18 @@ public class CDVRecorder extends CordovaPlugin {
         } else if (action.equals("changeDecibel")) {
             cordova.setActivityResultCallback(this);
             JSONArray jsonArray = args.getJSONArray(0);
-            changeDecibel(activity, callbackContext, (float) jsonArray.getDouble(0));
+            if (jsonArray.length() < 1) {
+                callbackContext.error("First argument required. Please specify [number, ...]");
+                return false;
+            }
+            if (jsonArray.length() <= 1) {
+                // ファイル全体の音量を変更
+                changeDecibel(activity, callbackContext, jsonArray.getDouble(0));
+            }
+            else {
+                // 選択範囲の音量を変更
+                changeDecibel(activity, callbackContext, jsonArray.getDouble(0), jsonArray.getDouble(1), jsonArray.getDouble(2));
+            }
             return true;
         } else if (action.equals("getWaveFormByFile")) {
             cordova.setActivityResultCallback(this);
@@ -1337,47 +1348,159 @@ public class CDVRecorder extends CordovaPlugin {
         start(pathB, callbackContext);
     }
 
-    private void changeDecibel(final Activity activity, final CallbackContext callbackContext, float db) {
+    private void changeDecibel(final Activity activity, final CallbackContext callbackContext, double db, double start, double end) {
+        if (start == end) {
+            callbackContext.error("選択範囲が狭すぎます");
+            return ;
+        }
 
+        // A, B, C を結合順として定義する
+        // B は音量変更対象のパス
+        String pathA = AUDIO_LIST_DIR + "/1.wav";
+        String pathB = AUDIO_LIST_DIR + "/2.wav";
+        String pathC = AUDIO_LIST_DIR + "/3.wav";
+        double duration = getDuration(JOINED_PATH);
+        removeAudios();
+        try {
+            trim(JOINED_PATH, pathB, start, end).waitSafely();
+        } catch (InterruptedException e) {
+            e.printStackTrace();
+            callbackContext.error("音量の変更に失敗しました。(trim B)");
+            return;
+        }
+
+        try {
+            // 範囲の音量を上げる
+            Promise p = changeDecibel(pathB, pathB, db);
+            p.waitSafely();
+            if (p.isRejected()) {
+                throw new Exception();
+            }
+        } catch (Exception e) {
+            callbackContext.error("音量の変更に失敗しました。");
+            e.printStackTrace();
+            return;
+        }
+        // 範囲より前側を切り取り
+        // start が 0.05 以上のときだけ trim
+        if (start >= 0.05) {
+            try {
+                trim(JOINED_PATH, pathA, 0, start).waitSafely();
+            } catch (InterruptedException e) {
+                e.printStackTrace();
+                callbackContext.error("音量の変更に失敗しました。(trim A)");
+                return;
+            }
+        }
+        // 範囲より後側を切り取り
+        if (end <= (duration - 0.05)) {
+            try {
+                trim(JOINED_PATH, pathC, end, duration).waitSafely();
+            } catch (InterruptedException e) {
+                e.printStackTrace();
+                callbackContext.error("音量の変更に失敗しました。(trim C)");
+                return;
+            }
+        }
+        File joinedFile = new File(JOINED_PATH);
+        if (joinedFile.exists()) {
+            joinedFile.delete();
+        }
+
+        double updatedAudioDuration = getDuration(pathB);
+        try {
+            generateJoinedAudio().waitSafely();
+        } catch (InterruptedException e) {
+            e.printStackTrace();
+            callbackContext.error("音量の変更に失敗しました。(generateJoinedAudio)");
+            return;
+        }
+        try {
+            JSONObject joinedAudioData = getJoinedAudioData();
+            JSONObject fullAudio = (JSONObject) joinedAudioData.get("full_audio");
+            JSONObject updatedAudio = new JSONObject();
+            updatedAudio.put("duration", updatedAudioDuration);
+            updatedAudio.put("start", start);
+            updatedAudio.put("end", start + updatedAudioDuration);
+            joinedAudioData.put("updated_audio", updatedAudio);
+            PluginResult pluginResult = new PluginResult(PluginResult.Status.OK, joinedAudioData);
+            callbackContext.sendPluginResult(pluginResult);
+        } catch (JSONException e) {
+            e.printStackTrace();
+            callbackContext.error("json error");
+            return;
+        }
     }
 
-    private void changeDecibel(String input, String output, Double db) {
+    private void getDuration() {
+    }
 
-        float floatDb = (float)db;
 
-        ArrayList<String> commands = new ArrayList<String>();
+    private void changeDecibel(final Activity activity, final CallbackContext callbackContext, double db) {
+        changeDecibel(JOINED_PATH, JOINED_PATH, db).then(new DoneCallback() {
+            @Override
+            public void onDone(Object result) {
+                try {
+                    JSONObject joinedAudioData = getJoinedAudioData();
+                    JSONObject fullAudio = (JSONObject) joinedAudioData.get("full_audio");
+                    double duration = fullAudio.getDouble("duration");
+                    JSONObject updatedAudio = new JSONObject();
+                    updatedAudio.put("duration", duration);
+                    updatedAudio.put("start", 0);
+                    updatedAudio.put("end", duration);
+                    joinedAudioData.put("updated_audio", updatedAudio);
+                    PluginResult pluginResult = new PluginResult(PluginResult.Status.OK, joinedAudioData);
+                    callbackContext.sendPluginResult(pluginResult);
+                } catch (JSONException e) {
+                    e.printStackTrace();
+                    callbackContext.error("json error");
+                }
+            }
+        }).fail(new FailCallback() {
+            @Override
+            public void onFail(Object result) {
+                callbackContext.error("音量の変更に失敗しました。");
+            }
+        });
+    }
 
+    /**
+     * ファイル全体の音量変更
+     * @param input 入力音声ファイル
+     * @param output 出力先
+     * @param db デシベル
+     */
+    private Promise changeDecibel(String input, String output, double db) {
+        File tempFile = new File(TEMP_WAV_PATH);
+        removeTempWav();
+
+        List<String> commands = new ArrayList<String>();
         // 入力ファイル
         commands.add("-i");
         commands.add(new File(input).getAbsolutePath());
 
+        BigDecimal bd = new BigDecimal(String.valueOf(db));
+        // 小数第四位を切り捨て
+        BigDecimal bd4 = bd.setScale(3, RoundingMode.DOWN);
 
-        if (!db.isNaN()) {
-            commands.add("-filter:a");
-            commands.add("volume=" + db + "dB");
-        }
-        commands.add(output);
+        commands.add("-filter:a");
+        commands.add("volume=" + bd4.toPlainString() + "dB");
 
-        String command = "";
-        for (String str: commands) {
-            command += str + " ";
-        }
+        // 出力ファイル
+        commands.add(tempFile.getAbsolutePath());
 
         // 非同期処理
         Deferred deferred = new DeferredObject();
         Promise promise = deferred.promise();
-
+        String[] command = commands.toArray(new String[commands.size()]);
         long executionId = FFmpeg.executeAsync(command, new ExecuteCallback() {
-
             @Override
             public void apply(final long executionId, final int returnCode) {
                 if (returnCode == RETURN_CODE_SUCCESS) {
                     File outputFile = new File(output);
-                    // temp-merged -> merged
                     if (outputFile.exists()) {
                         outputFile.delete();
                     }
-
                     tempFile.renameTo(outputFile);
 
                     deferred.resolve("success");
@@ -1390,6 +1513,7 @@ public class CDVRecorder extends CordovaPlugin {
                 }
             }
         });
+        return promise;
     }
 
     /**
