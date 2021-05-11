@@ -293,7 +293,12 @@ public class CDVRecorder extends CordovaPlugin {
             float second = Float.parseFloat(args.get(0).toString());
             splitAndStart(activity, callbackContext, second);
             return true;
-        }else if (action.equals("getWaveFormByFile")) {
+        } else if (action.equals("changeDecibel")) {
+            cordova.setActivityResultCallback(this);
+            JSONArray jsonArray = args.getJSONArray(0);
+            changeDecibel(activity, callbackContext, (float) jsonArray.getDouble(0));
+            return true;
+        } else if (action.equals("getWaveFormByFile")) {
             cordova.setActivityResultCallback(this);
             String audioPath = args.get(0).toString();
             getWaveFormByFile(activity, callbackContext, audioPath);
@@ -1331,6 +1336,61 @@ public class CDVRecorder extends CordovaPlugin {
         }
 
         start(pathB, callbackContext);
+    }
+
+    private void changeDecibel(final Activity activity, final CallbackContext callbackContext, float db) {
+
+    }
+
+    private void changeDecibel(String input, String output, Double db) {
+
+        float floatDb = (float)db;
+
+        ArrayList<String> commands = new ArrayList<String>();
+
+        // 入力ファイル
+        commands.add("-i");
+        commands.add(new File(input).getAbsolutePath());
+
+
+        if (!db.isNaN()) {
+            commands.add("-filter:a");
+            commands.add("volume=" + db + "dB");
+        }
+        commands.add(output);
+
+        String command = "";
+        for (String str: commands) {
+            command += str + " ";
+        }
+
+        // 非同期処理
+        Deferred deferred = new DeferredObject();
+        Promise promise = deferred.promise();
+
+        long executionId = FFmpeg.executeAsync(command, new ExecuteCallback() {
+
+            @Override
+            public void apply(final long executionId, final int returnCode) {
+                if (returnCode == RETURN_CODE_SUCCESS) {
+                    File outputFile = new File(output);
+                    // temp-merged -> merged
+                    if (outputFile.exists()) {
+                        outputFile.delete();
+                    }
+
+                    tempFile.renameTo(outputFile);
+
+                    deferred.resolve("success");
+                } else if (returnCode == RETURN_CODE_CANCEL) {
+                    LOG.v(TAG, "Async command execution cancelled by user.");
+                    deferred.reject("cancel");
+                } else {
+                    LOG.v(TAG, String.format("Async command execution failed with returnCode=%d.", returnCode));
+                    deferred.reject("failed");
+                }
+            }
+        });
     }
 
     /**
