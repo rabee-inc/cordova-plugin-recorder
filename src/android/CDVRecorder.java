@@ -1361,6 +1361,8 @@ public class CDVRecorder extends CordovaPlugin {
         String pathC = AUDIO_LIST_DIR + "/3.wav";
         double duration = getDuration(JOINED_PATH);
         removeAudios();
+        start = Math.max(0, start);
+        end = Math.min(end, duration);
         try {
             trim(JOINED_PATH, pathB, start, end).waitSafely();
         } catch (InterruptedException e) {
