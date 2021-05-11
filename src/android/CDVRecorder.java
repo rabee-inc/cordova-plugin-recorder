@@ -309,6 +309,22 @@ public class CDVRecorder extends CordovaPlugin {
                 changeDecibel(activity, callbackContext, jsonArray.getDouble(0), jsonArray.getDouble(1), jsonArray.getDouble(2));
             }
             return true;
+        } else if (action.equals("previewDecibelChanged")) {
+            cordova.setActivityResultCallback(this);
+            JSONArray jsonArray = args.getJSONArray(0);
+            if (jsonArray.length() < 1) {
+                callbackContext.error("First argument required. Please specify [number, ...]");
+                return false;
+            }
+            if (jsonArray.length() <= 1) {
+                // ファイル全体の音量を変更
+                previewDecibelChanged(activity, callbackContext, jsonArray.getDouble(0));
+            }
+            else {
+                // 選択範囲の音量を変更
+                previewDecibelChanged(activity, callbackContext, jsonArray.getDouble(0), jsonArray.getDouble(1), jsonArray.getDouble(2));
+            }
+            return true;
         } else if (action.equals("getWaveFormByFile")) {
             cordova.setActivityResultCallback(this);
             String audioPath = args.get(0).toString();
@@ -1346,6 +1362,65 @@ public class CDVRecorder extends CordovaPlugin {
         }
 
         start(pathB, callbackContext);
+    }
+
+
+    private void previewDecibelChanged(Activity activity, CallbackContext callbackContext, double db, double start, double end) {
+        removeTempAudios();
+        double duration = getDuration(JOINED_PATH);
+        start = Math.max(0, start);
+        end = Math.min(end, duration);
+
+        if (start == end) {
+            callbackContext.error("選択範囲が狭すぎます。");
+            return;
+        }
+
+        String trimOutput = TEMP_AUDIO_LIST_DIR + "/preview_trim.wav";
+        String previewOutput = TEMP_AUDIO_LIST_DIR + "/preview.wav";
+
+        try {
+            Promise trim = trim(JOINED_PATH, trimOutput, start, end);
+            trim.waitSafely();
+            if (trim.isRejected()) {
+                throw new Exception();
+            }
+        } catch (Exception e) {
+            e.printStackTrace();
+            callbackContext.error("音量変更に失敗しました。(trim)");
+            return;
+        }
+
+        try {
+            Promise promise = changeDecibel(trimOutput, previewOutput, db);
+            promise.waitSafely();
+            if (promise.isRejected()) {
+                throw new Exception();
+            }
+        } catch (Exception e) {
+            e.printStackTrace();
+            callbackContext.error("音量変更に失敗しました。");
+            return;
+        }
+        PluginResult pluginResult = new PluginResult(PluginResult.Status.OK, "file://" + new File(previewOutput).getAbsoluteFile());
+        callbackContext.sendPluginResult(pluginResult);
+    }
+
+    private void previewDecibelChanged(Activity activity, CallbackContext callbackContext, double db) {
+        removeTempAudios();
+        String output = TEMP_AUDIO_LIST_DIR + "/preview.wav";
+        changeDecibel(JOINED_PATH, output, db).then(new DoneCallback() {
+            @Override
+            public void onDone(Object result) {
+                PluginResult pluginResult = new PluginResult(PluginResult.Status.OK, "file://" + new File(output).getAbsoluteFile());
+                callbackContext.sendPluginResult(pluginResult);
+            }
+        }).fail(new FailCallback() {
+            @Override
+            public void onFail(Object result) {
+                callbackContext.error("音量の変更に失敗しました。");
+            }
+        });
     }
 
     private void changeDecibel(final Activity activity, final CallbackContext callbackContext, double db, double start, double end) {
