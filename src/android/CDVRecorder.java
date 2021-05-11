@@ -1432,10 +1432,6 @@ public class CDVRecorder extends CordovaPlugin {
         }
     }
 
-    private void getDuration() {
-    }
-
-
     private void changeDecibel(final Activity activity, final CallbackContext callbackContext, double db) {
         changeDecibel(JOINED_PATH, JOINED_PATH, db).then(new DoneCallback() {
             @Override
