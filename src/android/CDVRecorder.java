@@ -1296,7 +1296,7 @@ public class CDVRecorder extends CordovaPlugin {
         return "file://" + outputFile.getAbsolutePath();
     }
 
-    private void splitAndStart(final Activity activity, final CallbackContext callbackContext, double splitSeconds) {
+    private void splitAndStart(final Activity activity, final CallbackContext callbackContext, float splitSeconds) {
         if (isRecording) {
             callbackContext.error("already starting");
             return;
