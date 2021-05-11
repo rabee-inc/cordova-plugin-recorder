@@ -288,7 +288,12 @@ public class CDVRecorder extends CordovaPlugin {
             String audioPath = args.get(0).toString();
             getWaveForm(activity, callbackContext, audioPath);
             return true;
-        } else if (action.equals("getWaveFormByFile")) {
+        } else if (action.equals("splitAndStart")) {
+            cordova.setActivityResultCallback(this);
+            float second = Float.parseFloat(args.get(0).toString());
+            splitAndStart(activity, callbackContext, second);
+            return true;
+        }else if (action.equals("getWaveFormByFile")) {
             cordova.setActivityResultCallback(this);
             String audioPath = args.get(0).toString();
             getWaveFormByFile(activity, callbackContext, audioPath);
@@ -1284,6 +1289,48 @@ public class CDVRecorder extends CordovaPlugin {
         output.write(bytes);
         output.close();
         return "file://" + outputFile.getAbsolutePath();
+    }
+
+    private void splitAndStart(final Activity activity, final CallbackContext callbackContext, double splitSeconds) {
+        if (isRecording) {
+            callbackContext.error("already starting");
+            return;
+        }
+
+        String pathA = AUDIO_LIST_DIR + "/1.wav";
+        String pathB = AUDIO_LIST_DIR + "/2.wav";
+        String pathC = AUDIO_LIST_DIR + "/3.wav";
+
+        File fileC = new File(pathC);
+
+        removeAudios();
+
+        if (splitSeconds <= 0.05) {
+            File joinedFile = new File(JOINED_PATH);
+            if (joinedFile.exists()) {
+                joinedFile.renameTo(fileC);
+            }
+        }
+        else {
+            Promise trim = trim(JOINED_PATH, pathA, 0, splitSeconds);
+            try {
+                trim.waitSafely();
+                trim = trim(JOINED_PATH, pathC, splitSeconds, getDuration(JOINED_PATH));
+                trim.waitSafely();
+            } catch (InterruptedException e) {
+                e.printStackTrace();
+                callbackContext.error("挿入に失敗しました");
+                removeAudios();
+                return;
+            }
+        }
+
+        File joinedFile = new File(JOINED_PATH);
+        if (joinedFile.exists()) {
+            joinedFile.delete();
+        }
+
+        start(pathB, callbackContext);
     }
 
     /**
