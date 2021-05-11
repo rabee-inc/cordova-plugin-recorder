@@ -1306,12 +1306,11 @@ public class CDVRecorder extends CordovaPlugin {
         String pathB = AUDIO_LIST_DIR + "/2.wav";
         String pathC = AUDIO_LIST_DIR + "/3.wav";
 
-        File fileC = new File(pathC);
-
         removeAudios();
 
         if (splitSeconds <= 0.05) {
             File joinedFile = new File(JOINED_PATH);
+            File fileC = new File(pathC);
             if (joinedFile.exists()) {
                 joinedFile.renameTo(fileC);
             }
