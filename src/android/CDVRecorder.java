@@ -118,6 +118,10 @@ public class CDVRecorder extends CordovaPlugin {
     private String COMPRESSION_PATH;
     private String AUDIO_LIST_DIR;
     private String TEMP_AUDIO_LIST_DIR;
+
+    private String EFFECT_AUDIO_DIR;
+    private String CHANGE_DECIBEL_DIR;
+
     private String action;
     private CallbackContext callbackContext;
     private CallbackContext pushBufferCallbackContext;
@@ -206,8 +210,10 @@ public class CDVRecorder extends CordovaPlugin {
         AUDIO_LIST_DIR = AUDIO_DIR + "/audios";
         TEMP_AUDIO_LIST_DIR = TEMP_DIR + "/audios";
         VERSIONS_DIR = AUDIO_DIR + "/versions";
+        EFFECT_AUDIO_DIR = AUDIO_DIR + "/effects";
+        CHANGE_DECIBEL_DIR = EFFECT_AUDIO_DIR + "/decibel";
 
-        String initTargetDirs[] = {AUDIO_DIR, TEMP_DIR, AUDIO_LIST_DIR, TEMP_AUDIO_LIST_DIR, VERSIONS_DIR};
+        String initTargetDirs[] = {AUDIO_DIR, TEMP_DIR, AUDIO_LIST_DIR, TEMP_AUDIO_LIST_DIR, VERSIONS_DIR, EFFECT_AUDIO_DIR, CHANGE_DECIBEL_DIR};
 
         for(String dir: initTargetDirs) {
             File file = new File(dir);
@@ -215,6 +221,8 @@ public class CDVRecorder extends CordovaPlugin {
                 file.mkdir();
             }
         }
+
+        deleteDirectoryFiles(new File(CHANGE_DECIBEL_DIR));
     }
 
     public boolean execute(final String action, JSONArray args, final CallbackContext callbackContext)
@@ -324,6 +332,18 @@ public class CDVRecorder extends CordovaPlugin {
                 // 選択範囲の音量を変更
                 previewDecibelChanged(activity, callbackContext, jsonArray.getDouble(0), jsonArray.getDouble(1), jsonArray.getDouble(2));
             }
+            return true;
+        } else if (action.equals("changeDecibelForFile")) {
+            cordova.setActivityResultCallback(this);
+            JSONArray jsonArray = args.getJSONArray(0);
+            if (jsonArray.length() < 3) {
+                callbackContext.error("First argument required. Please specify [input: String, output_id: String, Number]");
+                return false;
+            }
+            String filePath = jsonArray.getString(0).replace("file://", "");
+            String fileId = jsonArray.getString(1);
+            double db = jsonArray.getDouble(2);
+            changeDecibelForFile(activity, callbackContext, filePath, fileId, db);
             return true;
         } else if (action.equals("getWaveFormByFile")) {
             cordova.setActivityResultCallback(this);
@@ -1364,6 +1384,25 @@ public class CDVRecorder extends CordovaPlugin {
         start(pathB, callbackContext);
     }
 
+    private void changeDecibelForFile(Activity activity, CallbackContext callbackContext, String filePath, String fileId, double db) {
+        String outputPath = CHANGE_DECIBEL_DIR + "/" + fileId;
+        File outputFile = new File(outputPath);
+        if (!outputFile.exists()) {
+            try {
+                Promise promise = changeDecibel(filePath, outputPath, db);
+                promise.waitSafely();
+                if (promise.isRejected()) {
+                    throw new Exception();
+                }
+            } catch (Exception e) {
+                e.printStackTrace();
+                callbackContext.error("音量の変更に失敗しました。");
+                return;
+            }
+        }
+        PluginResult result = new PluginResult(PluginResult.Status.OK, "file://" + outputFile.getAbsoluteFile());
+        callbackContext.sendPluginResult(result);
+    }
 
     private void previewDecibelChanged(Activity activity, CallbackContext callbackContext, double db, double start, double end) {
         removeTempAudios();
