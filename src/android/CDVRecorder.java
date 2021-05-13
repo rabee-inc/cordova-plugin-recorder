@@ -1380,7 +1380,7 @@ public class CDVRecorder extends CordovaPlugin {
         if (joinedFile.exists()) {
             joinedFile.delete();
         }
-
+        playBgm();
         start(pathB, callbackContext);
     }
 
