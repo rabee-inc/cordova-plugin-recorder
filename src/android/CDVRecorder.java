@@ -18,7 +18,7 @@ import android.media.MediaRecorder;
 import android.net.Uri;
 import android.os.Build;
 import android.util.Log;
-import android.view.animation.AccelerateInterpolator;
+
 import androidx.core.content.ContextCompat;
 
 
@@ -36,29 +36,32 @@ import org.apache.cordova.*;
 
 import org.jdeferred2.Deferred;
 import org.jdeferred2.DoneCallback;
+import org.jdeferred2.FailCallback;
 import org.jdeferred2.Promise;
+import org.jdeferred2.impl.DefaultDeferredManager;
 import org.jdeferred2.impl.DeferredObject;
+import org.jdeferred2.multiple.MultipleResults;
+import org.jdeferred2.multiple.OneReject;
 import org.jetbrains.annotations.NotNull;
-import org.jetbrains.annotations.Nullable;
 import org.json.JSONArray;
 import org.json.JSONException;
 import org.json.JSONObject;
 
 import java.io.File;
 import java.io.FileInputStream;
-import java.io.FileNotFoundException;
 import java.io.FileOutputStream;
 import java.io.IOException;
-import java.io.InputStream;
 import java.io.OutputStream;
 import java.math.BigDecimal;
 import java.math.RoundingMode;
 import java.nio.ByteBuffer;
 import java.nio.ByteOrder;
+import java.nio.channels.FileChannel;
 import java.text.SimpleDateFormat;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Collection;
+import java.util.Collections;
 import java.util.HashMap;
 import java.util.List;
 import java.util.TimeZone;
@@ -66,7 +69,6 @@ import java.util.UUID;
 
 import androidx.annotation.NonNull;
 import androidx.annotation.RequiresApi;
-import androidx.core.app.ActivityCompat;
 
 
 import omrecorder.AudioChunk;
@@ -77,8 +79,6 @@ import omrecorder.PullableSource;
 import omrecorder.Recorder;
 
 import com.tonyodev.fetch2.*;
-import com.tonyodev.fetch2.Error;
-import com.tonyodev.fetch2core.DownloadBlock;
 import com.tonyodev.fetch2.Request;
 
 import static com.arthenica.mobileffmpeg.Config.RETURN_CODE_CANCEL;
@@ -107,9 +107,21 @@ public class CDVRecorder extends CordovaPlugin {
     private Recorder recorder;
 
     private String RECORDING_ROOT_DIR;
+    private String AUDIO_DIR;
     private String TEMP_DIR;
+    private String VERSIONS_DIR;
+
     private String WAVEFORM_PATH;
-    private String TEMP_WAV;
+    private String TEMP_WAV_PATH;
+    private String PLAYABLE_AUDIO_NAME;
+    private String JOINED_PATH;
+    private String COMPRESSION_PATH;
+    private String AUDIO_LIST_DIR;
+    private String TEMP_AUDIO_LIST_DIR;
+
+    private String EFFECT_AUDIO_DIR;
+    private String CHANGE_DECIBEL_DIR;
+
     private String action;
     private CallbackContext callbackContext;
     private CallbackContext pushBufferCallbackContext;
@@ -186,21 +198,31 @@ public class CDVRecorder extends CordovaPlugin {
         };
 
         webView.getContext().registerReceiver(this.btReciver, intentFilter);
-
+        PLAYABLE_AUDIO_NAME = "joined.wav";
         // root フォルダーのチェック
         RECORDING_ROOT_DIR = cordova.getContext().getFilesDir() + "/recording";
+        AUDIO_DIR = cordova.getContext().getFilesDir() + "/CDVRecorderAudio";
         TEMP_DIR = cordova.getContext().getFilesDir() + "/CDVRecorderTemp";
         WAVEFORM_PATH = TEMP_DIR + "/waveform";
-        TEMP_WAV = TEMP_DIR + "/temp.wav";
-        // root フォルダーの存在チェック
-        File file = new File(RECORDING_ROOT_DIR);
-        if (!file.exists()) {
-            file.mkdir();
+        TEMP_WAV_PATH = TEMP_DIR + "/temp.wav";
+        JOINED_PATH = AUDIO_DIR + "/" + PLAYABLE_AUDIO_NAME;
+        COMPRESSION_PATH = AUDIO_DIR + "/joined.mp3";
+        AUDIO_LIST_DIR = AUDIO_DIR + "/audios";
+        TEMP_AUDIO_LIST_DIR = TEMP_DIR + "/audios";
+        VERSIONS_DIR = AUDIO_DIR + "/versions";
+        EFFECT_AUDIO_DIR = AUDIO_DIR + "/effects";
+        CHANGE_DECIBEL_DIR = EFFECT_AUDIO_DIR + "/decibel";
+
+        String initTargetDirs[] = {AUDIO_DIR, TEMP_DIR, AUDIO_LIST_DIR, TEMP_AUDIO_LIST_DIR, VERSIONS_DIR, EFFECT_AUDIO_DIR, CHANGE_DECIBEL_DIR};
+
+        for(String dir: initTargetDirs) {
+            File file = new File(dir);
+            if (!file.exists()) {
+                file.mkdir();
+            }
         }
-        File tempFile = new File(TEMP_DIR);
-        if (!tempFile.exists()) {
-            tempFile.mkdir();
-        }
+
+        deleteDirectoryFiles(new File(CHANGE_DECIBEL_DIR));
     }
 
     public boolean execute(final String action, JSONArray args, final CallbackContext callbackContext)
@@ -253,9 +275,7 @@ public class CDVRecorder extends CordovaPlugin {
             getRecordingFolders(activity, callbackContext);
             return true;
         } else if (action.equals("removeFolder")) {
-            String audioId = args.get(0).toString();
-            cordova.setActivityResultCallback(this);
-            removeFolder(activity, callbackContext, audioId);
+            removeFolder(activity, callbackContext);
             return true;
         } else if (action.equals("removeCurrentFolder")) {
             cordova.setActivityResultCallback(this);
@@ -275,6 +295,55 @@ public class CDVRecorder extends CordovaPlugin {
             cordova.setActivityResultCallback(this);
             String audioPath = args.get(0).toString();
             getWaveForm(activity, callbackContext, audioPath);
+            return true;
+        } else if (action.equals("splitAndStart")) {
+            cordova.setActivityResultCallback(this);
+            float second = Float.parseFloat(args.get(0).toString());
+            splitAndStart(activity, callbackContext, second);
+            return true;
+        } else if (action.equals("changeDecibel")) {
+            cordova.setActivityResultCallback(this);
+            JSONArray jsonArray = args.getJSONArray(0);
+            if (jsonArray.length() < 1) {
+                callbackContext.error("First argument required. Please specify [number, ...]");
+                return false;
+            }
+            if (jsonArray.length() <= 1) {
+                // ファイル全体の音量を変更
+                changeDecibel(activity, callbackContext, jsonArray.getDouble(0));
+            }
+            else {
+                // 選択範囲の音量を変更
+                changeDecibel(activity, callbackContext, jsonArray.getDouble(0), jsonArray.getDouble(1), jsonArray.getDouble(2));
+            }
+            return true;
+        } else if (action.equals("previewDecibelChanged")) {
+            cordova.setActivityResultCallback(this);
+            JSONArray jsonArray = args.getJSONArray(0);
+            if (jsonArray.length() < 1) {
+                callbackContext.error("First argument required. Please specify [number, ...]");
+                return false;
+            }
+            if (jsonArray.length() <= 1) {
+                // ファイル全体の音量を変更
+                previewDecibelChanged(activity, callbackContext, jsonArray.getDouble(0));
+            }
+            else {
+                // 選択範囲の音量を変更
+                previewDecibelChanged(activity, callbackContext, jsonArray.getDouble(0), jsonArray.getDouble(1), jsonArray.getDouble(2));
+            }
+            return true;
+        } else if (action.equals("changeDecibelForFile")) {
+            cordova.setActivityResultCallback(this);
+            JSONArray jsonArray = args.getJSONArray(0);
+            if (jsonArray.length() < 3) {
+                callbackContext.error("First argument required. Please specify [input: String, output_id: String, Number]");
+                return false;
+            }
+            String filePath = jsonArray.getString(0).replace("file://", "");
+            String fileId = jsonArray.getString(1);
+            double db = jsonArray.getDouble(2);
+            changeDecibelForFile(activity, callbackContext, filePath, fileId, db);
             return true;
         } else if (action.equals("getWaveFormByFile")) {
             cordova.setActivityResultCallback(this);
@@ -318,19 +387,68 @@ public class CDVRecorder extends CordovaPlugin {
         } else if (action.equals(("initialize"))) {
             callbackContext.success("ok");
             return true;
+        } else if (action.equals(("canRestore"))) {
+            cordova.setActivityResultCallback(this);
+            canRestore(activity, callbackContext);
+            return true;
+        } else if (action.equals(("restore"))) {
+            cordova.setActivityResultCallback(this);
+            restore(activity, callbackContext);
+            return true;
+        } else if (action.equals("trim")) {
+            cordova.setActivityResultCallback(this);
+            JSONArray jsonArray = args.getJSONArray(0);
+            trim(activity, callbackContext, jsonArray.getDouble(0), jsonArray.getDouble(1));
+            return true;
+        } else if (action.equals("addNewVersion")) {
+            cordova.setActivityResultCallback(this);
+            try {
+                int version = addNewVersion();
+                PluginResult p = new PluginResult(PluginResult.Status.OK, version);
+                callbackContext.sendPluginResult(p);
+            } catch (IOException e) {
+                callbackContext.error("write file error");
+            }
+            return true;
+        } else if (action.equals("restoreFromVersion")) {
+            cordova.setActivityResultCallback(this);
+            String err = restoreFromVersion();
+            if (err == null) {
+                PluginResult p = new PluginResult(PluginResult.Status.OK, true);
+                callbackContext.sendPluginResult(p);
+            }
+            else {
+                callbackContext.error(err);
+            }
+            return true;
+        } else if (action.equals("removeVersions")) {
+            cordova.setActivityResultCallback(this);
+            removeVersions();
+
+            PluginResult p = new PluginResult(PluginResult.Status.OK, true);
+            callbackContext.sendPluginResult(p);
+            return true;
+        } else if (action.equals("cut")) {
+            cordova.setActivityResultCallback(this);
+            JSONArray jsonArray = args.getJSONArray(0);
+            ArrayList<double[]> trims = new ArrayList<>();
+            for (int i = 0; i < jsonArray.length(); i++) {
+                JSONArray doubles = jsonArray.getJSONArray(i);
+                trims.add(new double[] {doubles.getDouble(0), doubles.getDouble(1)});
+            }
+            cut(activity, callbackContext, trims);
+            return true;
         } else  {
             return false;
         }
 
     }
 
-    
-
     // パーミッションあるかどうか確認=>なければリクエスト出す
     private boolean checkSelfPermission(String permission, int requestCode) {
         Log.i(TAG, "checkSelfPermission $permission $requestCode");
         return ContextCompat.checkSelfPermission(cordova.getContext(),
-                        permission) == PackageManager.PERMISSION_GRANTED;
+                permission) == PackageManager.PERMISSION_GRANTED;
     }
 
     private boolean getMicPermission(Activity activity, CallbackContext callbackContext) {
@@ -344,8 +462,8 @@ public class CDVRecorder extends CordovaPlugin {
         return true;
     }
 
-    
-    
+
+
 
     @Override
     public void onActivityResult(int requestCode, int resultCode, Intent intent) {
@@ -355,11 +473,10 @@ public class CDVRecorder extends CordovaPlugin {
 
 
     public void startRecording(final Activity activity, final CallbackContext callbackContext) {
+        removeAudios();
         // 処理
-        currentAudioId = null;
-        sequences = new ArrayList<File>();
         playBgm();
-        start(currentAudioId, callbackContext);
+        start(JOINED_PATH, callbackContext);
 
     }
 
@@ -375,14 +492,10 @@ public class CDVRecorder extends CordovaPlugin {
     }
 
     public void resumeRecording(final Activity activity, final CallbackContext callbackContext) {
-        // currentAudio がなければ
-        if (currentAudioId == null) {
-            callbackContext.error("not initialize audio");
-        } else {
-            playBgm();
-            start(currentAudioId, callbackContext);
-            callbackContext.success("ok");
-        }
+        File[] files = new File(AUDIO_LIST_DIR).listFiles();
+        playBgm();
+        start(AUDIO_LIST_DIR + "/" + files.length + ".wav", callbackContext);
+        isRecording = true;
     }
 
 
@@ -392,8 +505,7 @@ public class CDVRecorder extends CordovaPlugin {
             pauseBgm();
             // 処理
             isRecording = false;
-            currentAudioId = null;
-            sequences = new ArrayList<File>();
+
             callbackContext.success("ok");
         } catch (IOException e) {
             callbackContext.error(e.getLocalizedMessage());
@@ -407,17 +519,20 @@ public class CDVRecorder extends CordovaPlugin {
         cordova.getThreadPool().execute(new Runnable() {
             @Override
             public void run() {
-                mergeAudio().done(new DoneCallback<File>() {
+                generateJoinedAudio().then(new DoneCallback<File>() {
                     @Override
                     public void onDone(File file) {
                         try {
-                            fullAudio.put("path", "file://" + file.getAbsoluteFile());
-                            audioData.put("full_audio", fullAudio);
-                            PluginResult result = new PluginResult(PluginResult.Status.OK, audioData);
+                            PluginResult result = new PluginResult(PluginResult.Status.OK, getJoinedAudioData());
                             callbackContext.sendPluginResult(result);
                         } catch (Exception e) {
-
+                            callbackContext.error("json error");
                         }
+                    }
+                }).fail(new FailCallback<String>() {
+                    @Override
+                    public void onFail(String result) {
+                        callbackContext.error(result);
                     }
                 });
 
@@ -489,7 +604,6 @@ public class CDVRecorder extends CordovaPlugin {
         }
     }
 
-
     @RequiresApi(api = Build.VERSION_CODES.LOLLIPOP)
     private void getAudio(final Activity activity, final CallbackContext callbackContext, final String audioId) {
         String pathname = RECORDING_ROOT_DIR + "/" + audioId + "/merged/merged.wav";
@@ -514,6 +628,184 @@ public class CDVRecorder extends CordovaPlugin {
         }
     }
 
+    private void canRestore(final Activity activity, final CallbackContext callbackContext) {
+        boolean message = false;
+        restoreFromVersion();
+        removeVersions();
+        message = new File(JOINED_PATH).exists();
+        // 新仕様のファイルが存在しない場合は、 結合前のファイルが一つでも存在するかチェック
+        if (!message) {
+            File audioList = new File(AUDIO_LIST_DIR);
+            if (audioList.exists()) {
+                File[] files = audioList.listFiles();
+                message = files.length != 0;
+            }
+        }
+
+        if (!message) {
+            File recordingDir = new File(RECORDING_ROOT_DIR);
+            if (recordingDir.exists()) {
+                File[] files = recordingDir.listFiles();
+                if (files.length != 0) {
+                    Arrays.sort(files, (File a, File b) -> {
+                        return Integer.parseInt(b.getName()) - Integer.parseInt(a.getName());
+                    });
+                    File file = files[0];
+                    File joinedFile = new File(RECORDING_ROOT_DIR + "/" + file.getName() + "/merged/merged.wav");
+                    if (joinedFile.exists()) {
+                        File targetFile = new File(JOINED_PATH);
+                        joinedFile.renameTo(targetFile);
+                        message = true;
+                        deleteDirectory(new File(RECORDING_ROOT_DIR));
+                    }
+                }
+            }
+        }
+
+        callbackContext.success(message ? 1 : 0);
+
+    }
+
+    private String restoreFromVersion() {
+        File versionsFile = new File(VERSIONS_DIR);
+        File[] versions = versionsFile.listFiles();
+        String err = null;
+        if (versions.length <= 0) {
+            return "ファイルが存在しません";
+        }
+        Arrays.sort(versions, (File a, File b) -> {
+            return Integer.parseInt(b.getName()) - Integer.parseInt(a.getName());
+        });
+        for (File version: versions) {
+            err = restoreFromVersion(version.getName());
+            if (err == null) {
+                break;
+            }
+        }
+        return err;
+    }
+
+    private String restoreFromVersion(String version) {
+        String dir = VERSIONS_DIR + "/" + version;
+        String err = null;
+        String playableAudioPath = dir + "/" + PLAYABLE_AUDIO_NAME;
+        File playableAudioFile = new File(playableAudioPath);
+        if (playableAudioFile.exists()) {
+            File joinedFile = new File(JOINED_PATH);
+            if (joinedFile.exists()) {
+                joinedFile.delete();
+            }
+            playableAudioFile.renameTo(joinedFile);
+        } else {
+            err = "ファイルが存在しません";
+        }
+        return err;
+    }
+
+    private void setToVersion(int version) throws IOException {
+        String toDirPath = VERSIONS_DIR + "/" + version;
+        File toDir = new File(toDirPath);
+        if (!toDir.exists()) {
+            toDir.mkdir();
+        }
+        String toPath = toDirPath + "/" + PLAYABLE_AUDIO_NAME;
+        File toFile = new File(toPath);
+        if (toFile.exists()) {
+            toFile.delete();
+        }
+        copyFile(new File(JOINED_PATH), toFile);
+    }
+
+    private int addNewVersion() throws IOException {
+        File[] versions = new File(VERSIONS_DIR).listFiles();
+        setToVersion(versions.length);
+        return versions.length;
+    }
+
+    private void removeVersion(String version) {
+        File dir = new File(VERSIONS_DIR + "/" + version);
+        if (dir.exists()) {
+            deleteDirectory(dir);
+        }
+    }
+
+
+    private void copyFile(File in, File out) throws IOException {
+        FileChannel inChannel = new FileInputStream(in).getChannel();
+        FileChannel outChannel = new FileOutputStream(out).getChannel();
+        try {
+            inChannel.transferTo(0, inChannel.size(),outChannel);
+        }
+        catch (IOException e) {
+            throw e;
+        }
+        finally {
+            if (inChannel != null) inChannel.close();
+            if (outChannel != null) outChannel.close();
+        }
+    }
+
+
+    private JSONObject getJoinedAudioData() throws JSONException {
+        File audioPath = new File(JOINED_PATH);
+
+        JSONObject audioData = new JSONObject();
+        JSONObject fullAudio = new JSONObject();
+
+        fullAudio.put("path", "file://" + audioPath.getAbsoluteFile());
+        fullAudio.put("duration", getDuration(JOINED_PATH));
+        audioData.put("full_audio", fullAudio);
+        return audioData;
+    }
+
+    private double getDuration(String audioPath) {
+        Uri uri = Uri.parse(audioPath);
+        MediaMetadataRetriever mmr = new MediaMetadataRetriever();
+        mmr.setDataSource(this.cordova.getContext(), uri);
+        String durationStr = mmr.extractMetadata(MediaMetadataRetriever.METADATA_KEY_DURATION);
+        return Double.parseDouble(durationStr) / 1000.0;
+    }
+
+    public void restore(Activity activity, CallbackContext callbackContext) {
+        Log.v("restore", "restore called");
+        Promise promise = generateJoinedAudio();
+        promise.then(new DoneCallback<File>() {
+            @Override
+            public void onDone(File success) {
+                try {
+                    PluginResult result = new PluginResult(PluginResult.Status.OK, getJoinedAudioData());
+                    callbackContext.sendPluginResult(result);
+                } catch (Exception e) {
+                    callbackContext.error("json error");
+                }
+            }
+        }).fail(new FailCallback<String>() {
+            @Override
+            public void onFail(String result) {
+                callbackContext.error(result);
+            }
+        });
+    }
+
+    // 再帰的にフォルダ削除
+    boolean deleteDirectory(File directoryToBeDeleted) {
+        File[]allContents = directoryToBeDeleted.listFiles();
+        if (allContents != null) {
+            for (File file : allContents) {
+                deleteDirectory(file);
+            }
+        }
+        return directoryToBeDeleted.delete();
+    }
+
+    void deleteDirectoryFiles(File directoryToBeDeleted) {
+        File[]allContents = directoryToBeDeleted.listFiles();
+        if (allContents != null) {
+            for (File file : allContents) {
+                deleteDirectory(file);
+            }
+        }
+    }
 
     // 音声ファイルをwavに変換する
     private Promise convertToWav(File inputFile, File outputFile) {
@@ -521,111 +813,25 @@ public class CDVRecorder extends CordovaPlugin {
         Deferred deferred = new DeferredObject();
         Promise promise = deferred.promise();
 
-
-
         long executionId = FFmpeg.executeAsync("-y -i " + inputFile.getAbsolutePath() + " " + outputFile.getAbsolutePath(), new ExecuteCallback() {
 
             @Override
             public void apply(final long executionId, final int returnCode) {
                 if (returnCode == RETURN_CODE_SUCCESS) {
                     LOG.v(TAG, "finish");
-                    deferred.resolve(null);
+                    deferred.resolve("success");
                 } else if (returnCode == RETURN_CODE_CANCEL) {
                     LOG.v(TAG, "Async command execution cancelled by user.");
+                    deferred.reject("cancel");
                 } else {
                     LOG.v(TAG, String.format("Async command execution failed with returnCode=%d.", returnCode));
+                    deferred.reject("failed");
                 }
             }
         });
 
         return promise;
     }
-
-    // 録音したファイルをマージする
-    private Promise mergeAudio() {
-
-        File currentAudioFolder = getCurrentAudioFolder();
-        ArrayList<String> commands = new ArrayList<String>();
-        File outputDir = new File(currentAudioFolder.getAbsolutePath() + "/merged" + "/temp-merged.wav");
-        File mergedFile = new File(currentAudioFolder.getAbsolutePath() + "/merged" + "/merged.wav");
-
-        int concatAudioCounter = 0;
-
-        // success と finish を発火させるのに必要
-        commands.add("-y");
-
-        // すでに 録音している音声があった場合はマージする最初に追加
-        if (mergedFile.exists()) {
-            commands.add("-i");
-            commands.add(mergedFile.getAbsolutePath());
-            concatAudioCounter++;
-        }
-
-        if (!outputDir.getParentFile().exists()) {
-            outputDir.getParentFile().mkdir();
-        }
-
-        // sequences に入ってる音声データをマージ
-        for (int i = 0; i < sequences.size(); i++) {
-            commands.add("-i");
-            commands.add(sequences.get(i).getAbsolutePath());
-            concatAudioCounter++;
-        }
-        if (concatAudioCounter > 0) {
-            commands.add("-filter_complex");
-            commands.add("concat=n=" + concatAudioCounter + ":v=0:a=1");
-        }
-
-
-        // 出力先の指定
-        String outputPath = outputDir.getAbsolutePath();
-        commands.add(outputPath);
-
-        String command = "";
-        for (String str: commands) {
-            command += str + " ";
-        }
-
-        Deferred deferred = new DeferredObject();
-        Promise promise = deferred.promise();
-
-
-        long executionId = FFmpeg.executeAsync(command, new ExecuteCallback() {
-
-            @Override
-            public void apply(final long executionId, final int returnCode) {
-                if (returnCode == RETURN_CODE_SUCCESS) {
-                    LOG.v(TAG, "finish");
-
-                    // temp-merged -> merged
-                    if (mergedFile.exists()) {
-                        mergedFile.delete();
-                    }
-
-                    mergedFile.getParentFile().mkdir();
-
-                    File newMergedFile = new File(mergedFile.getAbsolutePath());
-
-                    outputDir.renameTo(newMergedFile);
-                    // 削除
-                    for (int i = 0; i < sequences.size(); i++) {
-                        sequences.get(i).delete();
-                    }
-                    sequences.clear();
-                    sequences = new ArrayList<File>();
-
-                    deferred.resolve(newMergedFile);
-                } else if (returnCode == RETURN_CODE_CANCEL) {
-                    LOG.v(TAG, "Async command execution cancelled by user.");
-                } else {
-                    LOG.v(TAG, String.format("Async command execution failed with returnCode=%d.", returnCode));
-                }
-            }
-        });
-
-        return promise;
-    }
-
 
     // id をセット
     private void setAudio(String audioId) {
@@ -685,28 +891,131 @@ public class CDVRecorder extends CordovaPlugin {
     }
 
     private void removeCurrentFolder(final Activity activity, final CallbackContext callbackContext) {
-        String id = this.currentAudioId;
         this.currentAudioId = null;
-        removeFolder(id);
+        removeFolder();
         callbackContext.success("succss");
     }
 
+    private Promise concatAudio(List<String> files, String outputPath) {
+        // temp.wavを削除する
+        // filesにあるfileを結合していく
+        // 元のjoined.wavがあれば削除
+        // temp.wavをjoined.wavにファイル名変更
+        List<String> commands = new ArrayList<String>();
+        int concatAudioCounter = 0;
+        File tempFile = new File(TEMP_WAV_PATH);
+        removeTempWav();
 
-    private void removeFolder(final Activity activity, final CallbackContext callbackContext, final String id) {
-        removeFolder(id);
+        // success と finish を発火させるのに必要
+        commands.add("-y");
+        for(String file :files) {
+            String filePath = new File(file).getAbsolutePath();
+            commands.add("-i");
+            commands.add(filePath);
+            concatAudioCounter++;
+        }
+        if (concatAudioCounter > 0) {
+            commands.add("-filter_complex");
+            commands.add("concat=n=" + concatAudioCounter + ":v=0:a=1");
+        }
+        commands.add(TEMP_WAV_PATH);
+
+        String command = "";
+        for (String str: commands) {
+            command += str + " ";
+        }
+        Deferred deferred = new DeferredObject();
+        Promise promise = deferred.promise();
+
+        Log.v("concat audio command is ", command);
+
+        long executionId = FFmpeg.executeAsync(command, new ExecuteCallback() {
+
+            @Override
+            public void apply(final long executionId, final int returnCode) {
+                Log.v("ffmpeg executeAsync is run", Integer.valueOf(returnCode).toString());
+                if (returnCode == RETURN_CODE_SUCCESS) {
+                    File outputFile = new File(outputPath);
+
+                    if (outputFile.exists()) {
+                        outputFile.delete();
+                    }
+
+                    tempFile.renameTo(outputFile);
+
+                    deferred.resolve(outputFile);
+                } else if (returnCode == RETURN_CODE_CANCEL) {
+                    LOG.v(TAG, "Async command execution cancelled by user.");
+                    deferred.reject("cancel");
+                } else {
+                    LOG.v(TAG, String.format("Async command execution failed with returnCode=%d.", returnCode));
+                    deferred.reject("failed");
+                }
+            }
+        });
+
+        return promise;
+
+    }
+
+    private void removeTempAudios() {
+        deleteDirectoryFiles(new File(TEMP_AUDIO_LIST_DIR));
+    }
+
+    private void removeTempWav() {
+        File tempFile = new File(TEMP_WAV_PATH);
+        if (tempFile.exists()) {
+            tempFile.delete();
+        }
+    }
+
+    private Promise generateJoinedAudio() {
+        List<String> targets = new ArrayList<String>();
+        if (new File(JOINED_PATH).exists()) {
+            targets.add(JOINED_PATH);
+        }
+        if (new File(AUDIO_LIST_DIR).exists()) {
+            File[] audioList = new File(AUDIO_LIST_DIR).listFiles();
+            Arrays.sort(audioList, (File a, File b) -> {
+                // 1.wav 2.wav で拡張子を除いて 2 - 1 する
+                return Integer.parseInt(a.getName().replaceAll("[^0-9]", "")) - Integer.parseInt(b.getName().replaceAll("[^0-9]", ""));
+            });
+            for(File file: audioList) {
+                targets.add(AUDIO_LIST_DIR + '/' + file.getName());
+            }
+        }
+        Promise promise = concatAudio(targets, JOINED_PATH);
+        return promise.then(new DoneCallback() {
+            @Override
+            public void onDone(Object result) {
+                removeAudios();
+            }
+        });
+    }
+
+    private void removeFolder(final Activity activity, final CallbackContext callbackContext) {
+        removeFolder();
         callbackContext.success("success");
     }
 
-    private void removeFolder(String id) {
-        File dir = new File(RECORDING_ROOT_DIR + "/" + id);
-        if (dir.exists()) {
-            String deleteCmd = "rm -r " + dir.getAbsolutePath();
-            Runtime runtime = Runtime.getRuntime();
-            try {
-                runtime.exec(deleteCmd);
-            } catch (IOException e) {
-            }
+    private void removeFolder() {
+        removeAudios();
+        File joined = new File(JOINED_PATH);
+        if (joined.exists()) {
+            joined.delete();
         }
+        File compression = new File(COMPRESSION_PATH);
+        if (compression.exists()) {
+            compression.delete();
+        }
+    }
+
+    private void removeVersions() {
+        deleteDirectoryFiles(new File(VERSIONS_DIR));
+    }
+
+    private void removeAudios() {
+        deleteDirectoryFiles(new File(AUDIO_LIST_DIR));
     }
 
     private File getCurrentAudioFolder() {
@@ -782,41 +1091,179 @@ public class CDVRecorder extends CordovaPlugin {
         });
     }
 
+    /**
+     *
+     * @param input 入力ファイル
+     * @param output 出力先
+     * @param start 開始時間 (秒)
+     * @param end 終了時間 (秒)
+     * @return Promise ffmpeg の非同期処理
+     */
+    private Promise trim(String input, String output, double start, double end) {
+        File tempFile = new File(TEMP_WAV_PATH);
+        if (tempFile.exists()) {
+            tempFile.delete();
+        }
+
+        List<String> commands = new ArrayList<String>();
+
+        // 開始時間の設定
+        commands.add("-ss");
+
+        start *= 1000;
+        // 小数第一位を切り捨て
+        BigDecimal formattedStart = new BigDecimal(String.valueOf(start)).setScale(0, RoundingMode.DOWN);
+        int plainStart = Integer.parseInt(formattedStart.toPlainString());
+
+        // 時間のフォーマット整形クラス生成
+        SimpleDateFormat formatter = new SimpleDateFormat("HH:mm:ss.SSS");
+        formatter.setTimeZone(TimeZone.getTimeZone("GMT"));
+
+        String formattedStartString = formatter.format(plainStart);
+
+        commands.add(formattedStartString);
+
+        // 終了時間
+        commands.add("-to");
+        end *= 1000;
+        // 小数第一位を切り捨て
+        BigDecimal formattedEnd = new BigDecimal(String.valueOf(end)).setScale(0, RoundingMode.DOWN);
+        int plainEnd = Integer.parseInt(formattedEnd.toPlainString());
+        String formattedEndString = formatter.format(plainEnd);
+
+        commands.add(formattedEndString);
+
+
+        // 入力ファイル
+        commands.add("-i");
+        commands.add(new File(input).getAbsolutePath());
+
+
+        // 出力ファイル
+        commands.add(tempFile.getAbsolutePath());
+
+
+        String[] command = commands.toArray(new String[commands.size()]);
+
+        // 非同期処理
+        Deferred deferred = new DeferredObject();
+        Promise promise = deferred.promise();
+
+        long executionId = FFmpeg.executeAsync(command, new ExecuteCallback() {
+
+            @Override
+            public void apply(final long executionId, final int returnCode) {
+                if (returnCode == RETURN_CODE_SUCCESS) {
+                    File outputFile = new File(output);
+                    // temp-merged -> merged
+                    if (outputFile.exists()) {
+                        outputFile.delete();
+                    }
+
+                    tempFile.renameTo(outputFile);
+
+                    deferred.resolve("success");
+                } else if (returnCode == RETURN_CODE_CANCEL) {
+                    LOG.v(TAG, "Async command execution cancelled by user.");
+                    deferred.reject("cancel");
+                } else {
+                    LOG.v(TAG, String.format("Async command execution failed with returnCode=%d.", returnCode));
+                    deferred.reject("failed");
+                }
+            }
+        });
+
+        return promise;
+    }
+
+    private void trim(Activity activity, CallbackContext callbackContext, double start, double end) {
+        Promise p = trim(JOINED_PATH, JOINED_PATH, start, end);
+        p.then(new DoneCallback<String>() {
+            @Override
+            public void onDone(String file) {
+                try {
+                    PluginResult result = new PluginResult(PluginResult.Status.OK, getJoinedAudioData());
+                    callbackContext.sendPluginResult(result);
+                } catch (Exception e) {
+                    callbackContext.error("json error");
+                }
+            }
+        }).fail(new FailCallback<String>() {
+            @Override
+            public void onFail(String result) {
+                callbackContext.error(result);
+            }
+        });
+    }
+
+
+    private void cut(Activity activity, CallbackContext callbackContext, List<double[]> params) {
+        List<double[]> trimParams = new ArrayList<>();
+        trimParams.add(new double[]{0.0,  0.0});
+
+        Collections.sort(params, (double[] a, double[] b) -> {
+            return (int) (a[0] - b[0]);
+        });
+        int i = 1;
+        for (double[] param : params) {
+            double start = param[0];
+            double end = param[1];
+            trimParams.get(i - 1)[1] = start;
+            trimParams.add(new double[]{end, end});
+            i++;
+        }
+        trimParams.get(i - 1)[1] = getDuration(JOINED_PATH);
+        i = 1;
+        removeAudios();
+        for (double[] param : trimParams) {
+            if (param[0] != param[1]) {
+                Promise trim = trim(JOINED_PATH, AUDIO_LIST_DIR + "/" + i + ".wav", param[0], param[1]);
+                try {
+                    trim.waitSafely();
+                } catch (InterruptedException e) {
+                    e.printStackTrace();
+                    callbackContext.error("カットに失敗しました");
+                    removeAudios();
+                    return;
+                }
+                i++;
+            }
+        }
+        File joinedFile = new File(JOINED_PATH);
+        if (joinedFile.exists()) {
+            joinedFile.delete();
+        }
+        generateJoinedAudio().then(new DoneCallback() {
+            @Override
+            public void onDone(Object res) {
+                try {
+                    PluginResult result = new PluginResult(PluginResult.Status.OK, getJoinedAudioData());
+                    callbackContext.sendPluginResult(result);
+                } catch (JSONException e) {
+                    e.printStackTrace();
+                    callbackContext.error("json error");
+                }
+            }
+        }).fail(new FailCallback<String>() {
+            @Override
+            public void onFail(String result) {
+                callbackContext.error(result);
+            }
+        });
+    }
+
     private void importAudio(final Activity activity, final CallbackContext callbackContext, String audioPath) {
-        File originalPath;
         if (audioPath != null) {
-
             String path = audioPath.replace("file://", "");
-
-            originalPath = new File(path);
-
-            currentAudioId = getNewAudioId();
-            File newMergedParentFile = new File(RECORDING_ROOT_DIR + "/" + currentAudioId);
-            if (!newMergedParentFile.exists()) {
-                newMergedParentFile.mkdir();
-            }
-            File newMergedFile = new File(RECORDING_ROOT_DIR + "/" + currentAudioId + "/merged/merged.wav");
-            File mergedPath = new File(newMergedFile.getAbsolutePath());
-            if (!mergedPath.getParentFile().exists()) {
-                mergedPath.getParentFile().mkdir();
-            }
-
-            JSONObject fullAudio = new JSONObject();
-            JSONObject audioData = new JSONObject();
-
+            File input = new File(path);
+            input.renameTo(new File(JOINED_PATH));
+            removeAudios();
             try {
-                originalPath.renameTo(mergedPath);
-                fullAudio.put("path", "file://" + newMergedFile.getAbsoluteFile());
-                audioData.put("full_audio", fullAudio);
-                audioData.put("folder_id", currentAudioId);
-
-                PluginResult result = new PluginResult(PluginResult.Status.OK, audioData);
+                PluginResult result = new PluginResult(PluginResult.Status.OK, getJoinedAudioData());
                 callbackContext.sendPluginResult(result);
             } catch (Exception e) {
                 callbackContext.error("error on importing");
             }
-
-
         } else {
             callbackContext.error("please set audio");
             return;
@@ -840,7 +1287,7 @@ public class CDVRecorder extends CordovaPlugin {
             return;
         }
 
-        File tempwaveform = new File(RECORDING_ROOT_DIR + "/" + currentAudioId + "/tempwaveform/temppcmbuffer");
+        File tempwaveform = new File(WAVEFORM_PATH);
         cordova.getThreadPool().execute(new Runnable() {
             @Override
             public void run() {
@@ -854,7 +1301,7 @@ public class CDVRecorder extends CordovaPlugin {
             }
         });
     }
-    
+
     private String getWaveForm(File inputFile, File outputFile) throws IOException, WavFileException {
         if (!outputFile.getParentFile().exists()) {
             outputFile.getParentFile().mkdir();
@@ -894,6 +1341,291 @@ public class CDVRecorder extends CordovaPlugin {
         output.write(bytes);
         output.close();
         return "file://" + outputFile.getAbsolutePath();
+    }
+
+    private void splitAndStart(final Activity activity, final CallbackContext callbackContext, float splitSeconds) {
+        if (isRecording) {
+            callbackContext.error("already starting");
+            return;
+        }
+
+        String pathA = AUDIO_LIST_DIR + "/1.wav";
+        String pathB = AUDIO_LIST_DIR + "/2.wav";
+        String pathC = AUDIO_LIST_DIR + "/3.wav";
+
+        removeAudios();
+
+        if (splitSeconds <= 0.05) {
+            File joinedFile = new File(JOINED_PATH);
+            File fileC = new File(pathC);
+            if (joinedFile.exists()) {
+                joinedFile.renameTo(fileC);
+            }
+        }
+        else {
+            Promise trim = trim(JOINED_PATH, pathA, 0, splitSeconds);
+            try {
+                trim.waitSafely();
+                trim = trim(JOINED_PATH, pathC, splitSeconds, getDuration(JOINED_PATH));
+                trim.waitSafely();
+            } catch (InterruptedException e) {
+                e.printStackTrace();
+                callbackContext.error("挿入に失敗しました");
+                removeAudios();
+                return;
+            }
+        }
+
+        File joinedFile = new File(JOINED_PATH);
+        if (joinedFile.exists()) {
+            joinedFile.delete();
+        }
+
+        start(pathB, callbackContext);
+    }
+
+    private void changeDecibelForFile(Activity activity, CallbackContext callbackContext, String filePath, String fileId, double db) {
+        String outputPath = CHANGE_DECIBEL_DIR + "/" + fileId;
+        File outputFile = new File(outputPath);
+        if (!outputFile.exists()) {
+            try {
+                Promise promise = changeDecibel(filePath, outputPath, db);
+                promise.waitSafely();
+                if (promise.isRejected()) {
+                    throw new Exception();
+                }
+            } catch (Exception e) {
+                e.printStackTrace();
+                callbackContext.error("音量の変更に失敗しました。");
+                return;
+            }
+        }
+        PluginResult result = new PluginResult(PluginResult.Status.OK, "file://" + outputFile.getAbsoluteFile());
+        callbackContext.sendPluginResult(result);
+    }
+
+    private void previewDecibelChanged(Activity activity, CallbackContext callbackContext, double db, double start, double end) {
+        removeTempAudios();
+        double duration = getDuration(JOINED_PATH);
+        start = Math.max(0, start);
+        end = Math.min(end, duration);
+
+        if (start == end) {
+            callbackContext.error("選択範囲が狭すぎます。");
+            return;
+        }
+
+        String trimOutput = TEMP_AUDIO_LIST_DIR + "/preview_trim.wav";
+        String previewOutput = TEMP_AUDIO_LIST_DIR + "/preview.wav";
+
+        try {
+            Promise trim = trim(JOINED_PATH, trimOutput, start, end);
+            trim.waitSafely();
+            if (trim.isRejected()) {
+                throw new Exception();
+            }
+        } catch (Exception e) {
+            e.printStackTrace();
+            callbackContext.error("音量変更に失敗しました。(trim)");
+            return;
+        }
+
+        try {
+            Promise promise = changeDecibel(trimOutput, previewOutput, db);
+            promise.waitSafely();
+            if (promise.isRejected()) {
+                throw new Exception();
+            }
+        } catch (Exception e) {
+            e.printStackTrace();
+            callbackContext.error("音量変更に失敗しました。");
+            return;
+        }
+        PluginResult pluginResult = new PluginResult(PluginResult.Status.OK, "file://" + new File(previewOutput).getAbsoluteFile());
+        callbackContext.sendPluginResult(pluginResult);
+    }
+
+    private void previewDecibelChanged(Activity activity, CallbackContext callbackContext, double db) {
+        removeTempAudios();
+        String output = TEMP_AUDIO_LIST_DIR + "/preview.wav";
+        changeDecibel(JOINED_PATH, output, db).then(new DoneCallback() {
+            @Override
+            public void onDone(Object result) {
+                PluginResult pluginResult = new PluginResult(PluginResult.Status.OK, "file://" + new File(output).getAbsoluteFile());
+                callbackContext.sendPluginResult(pluginResult);
+            }
+        }).fail(new FailCallback() {
+            @Override
+            public void onFail(Object result) {
+                callbackContext.error("音量の変更に失敗しました。");
+            }
+        });
+    }
+
+    private void changeDecibel(final Activity activity, final CallbackContext callbackContext, double db, double start, double end) {
+        if (start == end) {
+            callbackContext.error("選択範囲が狭すぎます");
+            return ;
+        }
+
+        // A, B, C を結合順として定義する
+        // B は音量変更対象のパス
+        String pathA = AUDIO_LIST_DIR + "/1.wav";
+        String pathB = AUDIO_LIST_DIR + "/2.wav";
+        String pathC = AUDIO_LIST_DIR + "/3.wav";
+        double duration = getDuration(JOINED_PATH);
+        removeAudios();
+        start = Math.max(0, start);
+        end = Math.min(end, duration);
+        try {
+            trim(JOINED_PATH, pathB, start, end).waitSafely();
+        } catch (InterruptedException e) {
+            e.printStackTrace();
+            callbackContext.error("音量の変更に失敗しました。(trim B)");
+            return;
+        }
+
+        try {
+            // 範囲の音量を上げる
+            Promise p = changeDecibel(pathB, pathB, db);
+            p.waitSafely();
+            if (p.isRejected()) {
+                throw new Exception();
+            }
+        } catch (Exception e) {
+            callbackContext.error("音量の変更に失敗しました。");
+            e.printStackTrace();
+            return;
+        }
+        // 範囲より前側を切り取り
+        // start が 0.05 以上のときだけ trim
+        if (start >= 0.05) {
+            try {
+                trim(JOINED_PATH, pathA, 0, start).waitSafely();
+            } catch (InterruptedException e) {
+                e.printStackTrace();
+                callbackContext.error("音量の変更に失敗しました。(trim A)");
+                return;
+            }
+        }
+        // 範囲より後側を切り取り
+        if (end <= (duration - 0.05)) {
+            try {
+                trim(JOINED_PATH, pathC, end, duration).waitSafely();
+            } catch (InterruptedException e) {
+                e.printStackTrace();
+                callbackContext.error("音量の変更に失敗しました。(trim C)");
+                return;
+            }
+        }
+        File joinedFile = new File(JOINED_PATH);
+        if (joinedFile.exists()) {
+            joinedFile.delete();
+        }
+
+        double updatedAudioDuration = getDuration(pathB);
+        try {
+            generateJoinedAudio().waitSafely();
+        } catch (InterruptedException e) {
+            e.printStackTrace();
+            callbackContext.error("音量の変更に失敗しました。(generateJoinedAudio)");
+            return;
+        }
+        try {
+            JSONObject joinedAudioData = getJoinedAudioData();
+            JSONObject fullAudio = (JSONObject) joinedAudioData.get("full_audio");
+            JSONObject updatedAudio = new JSONObject();
+            updatedAudio.put("duration", updatedAudioDuration);
+            updatedAudio.put("start", start);
+            updatedAudio.put("end", start + updatedAudioDuration);
+            joinedAudioData.put("updated_audio", updatedAudio);
+            PluginResult pluginResult = new PluginResult(PluginResult.Status.OK, joinedAudioData);
+            callbackContext.sendPluginResult(pluginResult);
+        } catch (JSONException e) {
+            e.printStackTrace();
+            callbackContext.error("json error");
+            return;
+        }
+    }
+
+    private void changeDecibel(final Activity activity, final CallbackContext callbackContext, double db) {
+        changeDecibel(JOINED_PATH, JOINED_PATH, db).then(new DoneCallback() {
+            @Override
+            public void onDone(Object result) {
+                try {
+                    JSONObject joinedAudioData = getJoinedAudioData();
+                    JSONObject fullAudio = (JSONObject) joinedAudioData.get("full_audio");
+                    double duration = fullAudio.getDouble("duration");
+                    JSONObject updatedAudio = new JSONObject();
+                    updatedAudio.put("duration", duration);
+                    updatedAudio.put("start", 0);
+                    updatedAudio.put("end", duration);
+                    joinedAudioData.put("updated_audio", updatedAudio);
+                    PluginResult pluginResult = new PluginResult(PluginResult.Status.OK, joinedAudioData);
+                    callbackContext.sendPluginResult(pluginResult);
+                } catch (JSONException e) {
+                    e.printStackTrace();
+                    callbackContext.error("json error");
+                }
+            }
+        }).fail(new FailCallback() {
+            @Override
+            public void onFail(Object result) {
+                callbackContext.error("音量の変更に失敗しました。");
+            }
+        });
+    }
+
+    /**
+     * ファイル全体の音量変更
+     * @param input 入力音声ファイル
+     * @param output 出力先
+     * @param db デシベル
+     */
+    private Promise changeDecibel(String input, String output, double db) {
+        File tempFile = new File(TEMP_WAV_PATH);
+        removeTempWav();
+
+        List<String> commands = new ArrayList<String>();
+        // 入力ファイル
+        commands.add("-i");
+        commands.add(new File(input).getAbsolutePath());
+
+        BigDecimal bd = new BigDecimal(String.valueOf(db));
+        // 小数第四位を切り捨て
+        BigDecimal bd4 = bd.setScale(3, RoundingMode.DOWN);
+
+        commands.add("-filter:a");
+        commands.add("volume=" + bd4.toPlainString() + "dB");
+
+        // 出力ファイル
+        commands.add(tempFile.getAbsolutePath());
+
+        // 非同期処理
+        Deferred deferred = new DeferredObject();
+        Promise promise = deferred.promise();
+        String[] command = commands.toArray(new String[commands.size()]);
+        long executionId = FFmpeg.executeAsync(command, new ExecuteCallback() {
+            @Override
+            public void apply(final long executionId, final int returnCode) {
+                if (returnCode == RETURN_CODE_SUCCESS) {
+                    File outputFile = new File(output);
+                    if (outputFile.exists()) {
+                        outputFile.delete();
+                    }
+                    tempFile.renameTo(outputFile);
+
+                    deferred.resolve("success");
+                } else if (returnCode == RETURN_CODE_CANCEL) {
+                    LOG.v(TAG, "Async command execution cancelled by user.");
+                    deferred.reject("cancel");
+                } else {
+                    LOG.v(TAG, String.format("Async command execution failed with returnCode=%d.", returnCode));
+                    deferred.reject("failed");
+                }
+            }
+        });
+        return promise;
     }
 
     /**
@@ -953,34 +1685,13 @@ public class CDVRecorder extends CordovaPlugin {
 
 
     // 音源の録音開始
-    private void start(String audioId, final CallbackContext callbackContext) {
+    private void start(String path, final CallbackContext callbackContext) {
         cordova.getThreadPool().execute(new Runnable() {
             @Override
             public void run() {
                 try {
-
-                    if (audioId != null) {
-                        currentAudioId = audioId;
-                    } else {
-                        currentAudioId = getNewAudioId();
-                    }
-
-                    String sequencePath = RECORDING_ROOT_DIR + "/" + currentAudioId + "/" + "sequences";
-                    File sequenseDir = new File(sequencePath);
-
-                    // フォルダーがなければ生成する
-                    if (!sequenseDir.exists()) {
-                        if (!sequenseDir.getParentFile().exists()) {
-                            sequenseDir.getParentFile().mkdir();
-                        }
-                        sequenseDir.mkdir();
-                    }
-
-                    // 実際に録音するファイル
-                    File audio = File.createTempFile("sequence", ".wav", sequenseDir);
-
-                    // シーケンスに追加
-                    sequences.add(audio);
+                    File audioFile = new File(path);
+                    Log.v("debug", "run");
 
                     isRecording = true;
 
@@ -996,7 +1707,7 @@ public class CDVRecorder extends CordovaPlugin {
                                 pushBufferCallbackContext.sendPluginResult(result);
                             }
                         }
-                    }), audio);
+                    }), audioFile);
                     recorder.startRecording();
                     // sample rate を送る
                     JSONObject resultData = new JSONObject();
